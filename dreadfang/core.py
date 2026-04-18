@@ -9,6 +9,7 @@ class DfOp:
 
 
 DfNode: TypeAlias = Generator[DfOp, None, None]
+DfScorer: TypeAlias = Callable[["DfCtx"], float]
 
 
 @dataclass
@@ -85,13 +86,33 @@ class Await(DfOp):
 @dataclass(frozen=True)
 class Option(DfOp):
     Label: str
-    Op: DfOp
-    Score: Callable[[DfCtx], float] | None = None
+    Score: DfScorer
+    Target: str
 
 
 @dataclass(frozen=True)
 class Decide(DfOp):
     Options: tuple[Option, ...]
+    Hysteresis: float = 0.0
+    MinCommitTicks: int = 0
+
+
+def Clamp01(value: float) -> float:
+    if value < 0.0:
+        return 0.0
+    if value > 1.0:
+        return 1.0
+    return value
+
+
+class When:
+    @staticmethod
+    def Always(_ctx: DfCtx) -> float:
+        return 1.0
+
+    @staticmethod
+    def Never(_ctx: DfCtx) -> float:
+        return 0.0
 
 
 class Df:
@@ -136,17 +157,25 @@ class Df:
     @staticmethod
     def Option(
         label: str,
-        op: DfOp,
-        score: Callable[[DfCtx], float] | None = None,
+        score: DfScorer,
+        target: str,
     ) -> Option:
-        return Option(Label=label, Op=op, Score=score)
+        return Option(Label=label, Score=score, Target=target)
 
     @staticmethod
-    def Decide(*options: Option | Iterable[Option]) -> Decide:
+    def Decide(
+        *options: Option | Iterable[Option],
+        hysteresis: float = 0.0,
+        min_commit_ticks: int = 0,
+    ) -> Decide:
         normalized: list[Option] = []
         for candidate in options:
             if isinstance(candidate, Option):
                 normalized.append(candidate)
             else:
                 normalized.extend(candidate)
-        return Decide(Options=tuple(normalized))
+        return Decide(
+            Options=tuple(normalized),
+            Hysteresis=hysteresis,
+            MinCommitTicks=min_commit_ticks,
+        )

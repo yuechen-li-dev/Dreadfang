@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from dreadfang.core import Df, DfCtx, DfNode, Event
-from dreadfang.runtime import DfActRecord, DfRegistry, RunNode
+from dreadfang.core import Df, DfCtx, DfNode, Event, When
+from dreadfang.runtime import DfActRecord, DfDecisionRecord, DfRegistry, RunNode
 
 
 def test_RunNodeActWaitSucceedDeterministic() -> None:
@@ -23,6 +23,7 @@ def test_RunNodeActWaitSucceedDeterministic() -> None:
         DfActRecord(Tick=0, Name="Look", Payload=None),
         DfActRecord(Tick=2, Name="Move", Payload={"to": "east"}),
     )
+    assert result.Decisions == ()
 
 
 def test_RunNodeFailStopsAndPreservesReason() -> None:
@@ -38,6 +39,7 @@ def test_RunNodeFailStopsAndPreservesReason() -> None:
     assert result.StepCount == 2
     assert result.FailureReason == "boom"
     assert result.Acts == (DfActRecord(Tick=0, Name="Start", Payload=None),)
+    assert result.Decisions == ()
 
 
 def test_RunNodeSucceedStopsWithoutExtraSteps() -> None:
@@ -52,6 +54,7 @@ def test_RunNodeSucceedStopsWithoutExtraSteps() -> None:
     assert result.Tick == 1
     assert result.StepCount == 2
     assert result.Acts == ()
+    assert result.Decisions == ()
 
 
 def test_RunNodeUsesProvidedCtxAndMutatesTick() -> None:
@@ -79,6 +82,7 @@ def test_RunNodeIncompleteWhenNodeExhaustsWithoutTerminalOp() -> None:
     assert result.Status == "Incomplete"
     assert result.StepCount == 1
     assert result.Acts == (DfActRecord(Tick=0, Name="Only", Payload=None),)
+    assert result.Decisions == ()
 
 
 def test_RunNodeRejectsUnsupportedOpsInM1b() -> None:
@@ -205,3 +209,149 @@ def test_RunNodePushRequiresKnownTarget() -> None:
 
     with pytest.raises(KeyError, match="Unknown Push target"):
         _ = RunNode(ParentNode)
+
+
+def test_RunNodeDecideChoosesHighestClampedScore() -> None:
+    def HighSignal(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("signal", 0.0))
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Decide(
+            [
+                Df.Option("Primary", HighSignal, "PrimaryBeat"),
+                Df.Option("Fallback", When.Always, "FallbackBeat"),
+            ]
+        )
+        yield Df.Succeed()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Primary")
+        yield Df.Pop()
+
+    def FallbackBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Fallback")
+        yield Df.Pop()
+
+    ctx = DfCtx()
+    ctx.State.Set("signal", 2.5)
+
+    result = RunNode(Root, ctx=ctx, registry={"PrimaryBeat": PrimaryBeat, "FallbackBeat": FallbackBeat})
+
+    assert result.Status == "Succeeded"
+    assert result.Decisions == (
+        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=1.0),
+    )
+    assert result.Acts == (DfActRecord(Tick=0, Name="Primary", Payload=None),)
+
+
+def test_RunNodeDecideHysteresisRetainsCommitUntilMarginIsBeaten() -> None:
+    def PrimaryScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("primary", 0.0))
+
+    def FallbackScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("fallback", 0.0))
+
+    def Root(ctx: DfCtx) -> DfNode:
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            hysteresis=0.1,
+        )
+        ctx.State.Set("primary", 0.60)
+        ctx.State.Set("fallback", 0.65)
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            hysteresis=0.1,
+        )
+        ctx.State.Set("fallback", 0.72)
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            hysteresis=0.1,
+        )
+        yield Df.Succeed()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Primary")
+        yield Df.Pop()
+
+    def FallbackBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Fallback")
+        yield Df.Pop()
+
+    ctx = DfCtx()
+    ctx.State.Set("primary", 0.60)
+    ctx.State.Set("fallback", 0.58)
+
+    result = RunNode(Root, ctx=ctx, registry={"PrimaryBeat": PrimaryBeat, "FallbackBeat": FallbackBeat})
+
+    assert tuple(record.Name for record in result.Acts) == ("Primary", "Primary", "Fallback")
+    assert result.Decisions == (
+        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=0.6),
+        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=0.6),
+        DfDecisionRecord(Tick=0, Label="Fallback", Target="FallbackBeat", Score=0.72),
+    )
+
+
+def test_RunNodeDecideMinCommitBlocksSwitchUntilWindowElapses() -> None:
+    def PrimaryScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("primary", 0.0))
+
+    def FallbackScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("fallback", 0.0))
+
+    def Root(ctx: DfCtx) -> DfNode:
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        ctx.State.Set("fallback", 1.0)
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        yield Df.Succeed()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Primary")
+        yield Df.Pop()
+
+    def FallbackBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Fallback")
+        yield Df.Pop()
+
+    ctx = DfCtx()
+    ctx.State.Set("primary", 0.7)
+    ctx.State.Set("fallback", 0.0)
+
+    result = RunNode(Root, ctx=ctx, registry={"PrimaryBeat": PrimaryBeat, "FallbackBeat": FallbackBeat})
+
+    assert tuple(record.Name for record in result.Acts) == ("Primary", "Primary", "Primary", "Fallback")
+    assert tuple(record.Label for record in result.Decisions) == ("Primary", "Primary", "Primary", "Fallback")
