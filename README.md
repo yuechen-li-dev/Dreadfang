@@ -124,10 +124,17 @@ MIT.
 
 Repository samples live in `samples/` so authored flows stay separate from `dreadfang.core` and `dreadfang.runtime`.
 
-The first ergonomics proof sample is `samples/PatrolRecoverSample.py`, a small patrol/recover/fallback loop that exercises:
+The early composition sample is `samples/PatrolRecoverSample.py`, a small patrol/recover/fallback loop that exercises:
 
 * linear composition via `yield from`
 * explicit stack control via `Push` / `Pop`
 * observable actions via `Act`
 * deterministic timing via `Wait`
 * tiny explicit authored state through `ctx.State`
+
+The M5 utility ergonomics sample is `samples/UtilityCommitmentSample.py`, a bounded noisy-signal control loop that exercises:
+
+* scorer functions feeding `Df.Decide(...)`
+* anti-thrashing hysteresis margins
+* anti-thrashing `min_commit_ticks` windows
+* inspectable decision traces for deterministic switch-count comparisons
