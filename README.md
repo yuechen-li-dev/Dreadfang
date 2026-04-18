@@ -118,3 +118,16 @@ That is the center of gravity for the project.
 ## License
 
 MIT.
+
+
+## Samples
+
+Repository samples live in `samples/` so authored flows stay separate from `dreadfang.core` and `dreadfang.runtime`.
+
+The first ergonomics proof sample is `samples/PatrolRecoverSample.py`, a small patrol/recover/fallback loop that exercises:
+
+* linear composition via `yield from`
+* explicit stack control via `Push` / `Pop`
+* observable actions via `Act`
+* deterministic timing via `Wait`
+* tiny explicit authored state through `ctx.State`
