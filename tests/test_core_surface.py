@@ -6,6 +6,7 @@ from typing import cast
 from dreadfang.core import (
     Act,
     Await,
+    Clamp01,
     Decide,
     Df,
     DfCtx,
@@ -19,6 +20,7 @@ from dreadfang.core import (
     Succeed,
     Until,
     Wait,
+    When,
 )
 
 
@@ -66,13 +68,23 @@ def test_DfHelpersProduceExpectedOps() -> None:
 
 
 def test_DfDecideNormalizesOptions() -> None:
-    optionA = Df.Option("attack", Df.Act("Attack"))
-    optionB = Df.Option("wait", Df.Wait(1))
+    optionA = Df.Option("Primary", When.Always, "PrimaryBeat")
+    optionB = Df.Option("Fallback", When.Never, "FallbackBeat")
 
-    decide = Df.Decide(optionA, [optionB])
+    decide = Df.Decide(optionA, [optionB], hysteresis=0.1, min_commit_ticks=2)
 
     assert isinstance(decide, Decide)
     assert decide.Options == (optionA, optionB)
+    assert decide.Hysteresis == 0.1
+    assert decide.MinCommitTicks == 2
+
+
+def test_Clamp01AndWhenHelpers() -> None:
+    assert Clamp01(-2.5) == 0.0
+    assert Clamp01(0.4) == 0.4
+    assert Clamp01(9.0) == 1.0
+    assert When.Always(DfCtx()) == 1.0
+    assert When.Never(DfCtx()) == 0.0
 
 
 def test_FailAndFieldsPreserved() -> None:
