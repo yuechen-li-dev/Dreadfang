@@ -74,6 +74,8 @@ Right now, the project is focused on:
 
 The first priority is to prove that the authoring surface is good.
 
+The repository now includes an initial `dreadfang.core` surface with typed node/context/state primitives, core op dataclasses, and `Df` helper factories for authored nodes.
+
 ## Planned direction
 
 The expected early path is:
