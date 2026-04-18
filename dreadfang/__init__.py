@@ -1,4 +1,10 @@
 from dreadfang.runtime import DfActRecord, DfRegistry, DfRunResult, RunNode
+from dreadfang.validator import (
+    DfValidationDiagnostic,
+    DfValidationResult,
+    ValidateFile,
+    ValidateSource,
+)
 
 from dreadfang.core import (
     Act,
@@ -40,4 +46,8 @@ __all__ = [
     "DfRunResult",
     "DfRegistry",
     "RunNode",
+    "DfValidationDiagnostic",
+    "DfValidationResult",
+    "ValidateSource",
+    "ValidateFile",
 ]
