@@ -1,5 +1,9 @@
 # AGENTS.md
 
+For Dreadfang authoring code, use CamelCase for function names instead of Python snake_case, because Dreadfang is a constrained cross-language authoring surface intended to preserve naming interoperability with DragonGod and future generated backends rather than follow ordinary Python style conventions.
+
+## Primer
+
 Read `primer/` before writing or editing code.
 
 The files in `primer/` are the authoritative coding rules for this repository.
@@ -27,3 +31,4 @@ Do not confuse activity with progress.
 A failed attempt is only acceptable if it leaves behind a narrower problem, stronger evidence, or a justified stop.
 
 Any partial work must leave the codebase in a cleaner, more legible, and more diagnosable state than before.
+
