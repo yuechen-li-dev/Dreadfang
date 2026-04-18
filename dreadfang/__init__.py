@@ -1,4 +1,4 @@
-from dreadfang.runtime import DfActRecord, DfRunResult, RunNode
+from dreadfang.runtime import DfActRecord, DfRegistry, DfRunResult, RunNode
 
 from dreadfang.core import (
     Act,
@@ -38,5 +38,6 @@ __all__ = [
     "Wait",
     "DfActRecord",
     "DfRunResult",
+    "DfRegistry",
     "RunNode",
 ]

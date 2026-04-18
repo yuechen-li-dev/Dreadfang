@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
-from dreadfang.core import Act, DfCtx, DfNode, DfOp, Fail, Succeed, Wait
+from dreadfang.core import Act, DfCtx, DfNode, DfOp, Fail, Pop, Push, Succeed, Wait
 
 RunStatus = Literal["Succeeded", "Failed", "Incomplete"]
+DfNodeFactory = Callable[[DfCtx], DfNode]
 
 
 @dataclass(frozen=True)
@@ -30,15 +31,35 @@ class _RunAccumulator:
     StepCount: int = 0
 
 
+@dataclass
+class DfRegistry:
+    """Small explicit lookup surface for Push targets."""
+
+    Nodes: dict[str, DfNodeFactory] = field(default_factory=dict)
+
+    def Resolve(self, target: str) -> DfNodeFactory:
+        if target not in self.Nodes:
+            raise KeyError(f"Unknown Push target: {target}")
+        return self.Nodes[target]
+
+
 def RunNode(
-    nodeFactory: Callable[[DfCtx], DfNode],
+    nodeFactory: DfNodeFactory,
     ctx: DfCtx | None = None,
+    registry: DfRegistry | Mapping[str, DfNodeFactory] | None = None,
 ) -> DfRunResult:
     runCtx = ctx if ctx is not None else DfCtx()
-    node = nodeFactory(runCtx)
     accumulator = _RunAccumulator()
+    stack: list[DfNode] = [nodeFactory(runCtx)]
+    normalizedRegistry = _NormalizeRegistry(registry)
 
-    for op in node:
+    while stack:
+        node = stack[-1]
+        try:
+            op = next(node)
+        except StopIteration:
+            stack.pop()
+            continue
         accumulator.StepCount += 1
 
         if isinstance(op, Act):
@@ -55,7 +76,21 @@ def RunNode(
             _ApplyWait(runCtx, op)
             continue
 
+        if isinstance(op, Push):
+            pushFactory = normalizedRegistry.Resolve(op.Target)
+            stack.append(pushFactory(runCtx))
+            continue
+
+        if isinstance(op, Pop):
+            if len(stack) == 1:
+                raise ValueError("Pop cannot be used at root")
+            stack.pop()
+            continue
+
         if isinstance(op, Succeed):
+            if len(stack) > 1:
+                stack.pop()
+                continue
             return DfRunResult(
                 Status="Succeeded",
                 Tick=runCtx.Tick,
@@ -73,7 +108,7 @@ def RunNode(
                 FailureReason=op.Reason,
             )
 
-        raise TypeError(f"Unsupported Dreadfang op for M1b runner: {type(op).__name__}")
+        raise TypeError(f"Unsupported Dreadfang op for M1c runner: {type(op).__name__}")
 
     return DfRunResult(
         Status="Incomplete",
@@ -89,3 +124,15 @@ def _ApplyWait(ctx: DfCtx, waitOp: Wait) -> None:
         raise ValueError("Wait ticks must be >= 0")
 
     ctx.Tick += waitOp.Ticks
+
+
+def _NormalizeRegistry(
+    registry: DfRegistry | Mapping[str, DfNodeFactory] | None,
+) -> DfRegistry:
+    if registry is None:
+        return DfRegistry()
+
+    if isinstance(registry, DfRegistry):
+        return registry
+
+    return DfRegistry(Nodes=dict(registry))

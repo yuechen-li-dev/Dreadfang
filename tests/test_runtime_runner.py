@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from dreadfang.core import Df, DfCtx, DfNode, Event
-from dreadfang.runtime import DfActRecord, RunNode
+from dreadfang.runtime import DfActRecord, DfRegistry, RunNode
 
 
 def test_RunNodeActWaitSucceedDeterministic() -> None:
@@ -95,3 +95,113 @@ def test_RunNodeRejectsNegativeWaitTicks() -> None:
 
     with pytest.raises(ValueError):
         _ = RunNode(BadWaitNode)
+
+
+def test_RunNodeSupportsYieldFromLinearComposition() -> None:
+    def ChildNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("ChildStart")
+        yield Df.Wait(2)
+        yield Df.Act("ChildEnd")
+
+    def ParentNode(ctx: DfCtx) -> DfNode:
+        yield Df.Act("ParentStart")
+        yield from ChildNode(ctx)
+        yield Df.Act("ParentEnd")
+        yield Df.Succeed()
+
+    result = RunNode(ParentNode)
+
+    assert result.Status == "Succeeded"
+    assert result.Tick == 2
+    assert result.StepCount == 6
+    assert result.Acts == (
+        DfActRecord(Tick=0, Name="ParentStart", Payload=None),
+        DfActRecord(Tick=0, Name="ChildStart", Payload=None),
+        DfActRecord(Tick=2, Name="ChildEnd", Payload=None),
+        DfActRecord(Tick=2, Name="ParentEnd", Payload=None),
+    )
+
+
+def test_RunNodePushPopSuspendsAndResumesParent() -> None:
+    def ParentNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("ParentStart")
+        yield Df.Push("Child")
+        yield Df.Act("ParentResume")
+        yield Df.Succeed()
+
+    def ChildNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("ChildAct")
+        yield Df.Pop()
+
+    result = RunNode(ParentNode, registry={"Child": ChildNode})
+
+    assert result.Status == "Succeeded"
+    assert result.StepCount == 6
+    assert result.Acts == (
+        DfActRecord(Tick=0, Name="ParentStart", Payload=None),
+        DfActRecord(Tick=0, Name="ChildAct", Payload=None),
+        DfActRecord(Tick=0, Name="ParentResume", Payload=None),
+    )
+
+
+def test_RunNodePushPopNestedSubroutinesAreOrdered() -> None:
+    def ParentNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("P1")
+        yield Df.Push("Child")
+        yield Df.Act("P2")
+        yield Df.Succeed()
+
+    def ChildNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("C1")
+        yield Df.Push("Grandchild")
+        yield Df.Act("C2")
+        yield Df.Pop()
+
+    def GrandchildNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("G1")
+        yield Df.Pop()
+
+    registry = DfRegistry(
+        Nodes={
+            "Child": ChildNode,
+            "Grandchild": GrandchildNode,
+        }
+    )
+
+    result = RunNode(ParentNode, registry=registry)
+
+    assert result.Status == "Succeeded"
+    assert tuple(record.Name for record in result.Acts) == ("P1", "C1", "G1", "C2", "P2")
+
+
+def test_RunNodeChildFailFailsWholeRun() -> None:
+    def ParentNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("ParentStart")
+        yield Df.Push("Child")
+        yield Df.Act("Never")
+        yield Df.Succeed()
+
+    def ChildNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Fail("child failed")
+
+    result = RunNode(ParentNode, registry={"Child": ChildNode})
+
+    assert result.Status == "Failed"
+    assert result.FailureReason == "child failed"
+    assert result.Acts == (DfActRecord(Tick=0, Name="ParentStart", Payload=None),)
+
+
+def test_RunNodePopAtRootRaisesExplicitError() -> None:
+    def BadNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Pop()
+
+    with pytest.raises(ValueError, match="Pop cannot be used at root"):
+        _ = RunNode(BadNode)
+
+
+def test_RunNodePushRequiresKnownTarget() -> None:
+    def ParentNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Push("Missing")
+
+    with pytest.raises(KeyError, match="Unknown Push target"):
+        _ = RunNode(ParentNode)
