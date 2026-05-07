@@ -142,17 +142,18 @@ MIT.
 
 Repository samples live in `samples/` so authored flows stay separate from `dreadfang.core` and `dreadfang.runtime`.
 
-The early composition sample is `samples/PatrolRecoverSample.py`, a small patrol/recover/fallback loop that exercises:
+The patrol/recover sample is split into:
 
-* linear composition via `yield from`
-* explicit stack control via `Push` / `Pop`
-* observable actions via `Act`
-* deterministic timing via `Wait`
-* tiny explicit authored state through `ctx.State`
+* `samples/PatrolRecoverNodes.py` (restricted Dreadfang authoring module; expected to validate)
+* `samples/PatrolRecoverSample.py` (ordinary Python runtime wiring; not expected to validate)
 
-The M5 utility ergonomics sample is `samples/UtilityCommitmentSample.py`, a bounded noisy-signal control loop that exercises:
+The utility/commitment sample is split into:
 
-* scorer functions feeding `Df.Decide(...)`
-* anti-thrashing hysteresis margins
-* anti-thrashing `min_commit_ticks` windows
-* inspectable decision traces for deterministic switch-count comparisons
+* `samples/UtilityCommitmentNodes.py` (restricted Dreadfang authoring module; expected to validate)
+* `samples/UtilityCommitmentSample.py` (ordinary Python runtime/config helper module; not expected to validate)
+
+Across both samples, `Df.Act(...)` is the contract:
+
+* nodes emit explicit intent with `Df.Act(...)`
+* `RunNode` always records acts in `DfRunResult.Acts`
+* optional actuator handlers are explicit runtime boundary code and may be impure
