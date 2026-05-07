@@ -115,6 +115,24 @@ A Dreadfang node should eventually look like a small sequential control script:
 
 That is the center of gravity for the project.
 
+
+## Actuator boundary (M6)
+
+Dreadfang nodes stay in the restricted authoring subset and should remain pure control logic.
+
+When a node yields `Df.Act(...)`, it emits an explicit intent. The runtime always records that intent in `DfRunResult.Acts`.
+
+Optional runtime actuators can then interpret those recorded intents through explicit registration (`DfActuatorRegistry` passed to `RunNode`).
+
+This boundary is intentional:
+
+* node modules remain validator-friendly and lowerable
+* actuator modules are ordinary Python and may perform side effects (console output, engine calls, files, bindings, tools)
+* the recorded act stream remains the semantic truth, regardless of whether a handler exists
+
+Unknown acts are recorded and skipped by default when no matching handler is registered.
+Actuator handler exceptions are not swallowed; they propagate explicitly.
+
 ## License
 
 MIT.
