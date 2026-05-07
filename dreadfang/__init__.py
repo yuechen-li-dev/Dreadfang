@@ -1,4 +1,4 @@
-from dreadfang.runtime import DfActRecord, DfDecisionRecord, DfRegistry, DfRunResult, RunNode
+from dreadfang.runtime import DfActRecord, DfActuatorRegistry, DfDecisionRecord, DfRegistry, DfRunResult, RunNode
 from dreadfang.validator import (
     DfValidationDiagnostic,
     DfValidationResult,
@@ -47,6 +47,7 @@ __all__ = [
     "Wait",
     "When",
     "DfActRecord",
+    "DfActuatorRegistry",
     "DfDecisionRecord",
     "DfRunResult",
     "DfRegistry",

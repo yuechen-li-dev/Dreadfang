@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from dreadfang.core import Df, DfCtx, DfNode, Event, When
-from dreadfang.runtime import DfActRecord, DfDecisionRecord, DfRegistry, RunNode
+from dreadfang.runtime import DfActRecord, DfActuatorRegistry, DfDecisionRecord, DfRegistry, RunNode
 
 
 def test_RunNodeActWaitSucceedDeterministic() -> None:
@@ -355,3 +355,81 @@ def test_RunNodeDecideMinCommitBlocksSwitchUntilWindowElapses() -> None:
 
     assert tuple(record.Name for record in result.Acts) == ("Primary", "Primary", "Primary", "Fallback")
     assert tuple(record.Label for record in result.Decisions) == ("Primary", "Primary", "Primary", "Fallback")
+
+
+def test_RunNodeActuatorDispatchIsOptionalAndRecordFirst() -> None:
+    dispatchNames: list[str] = []
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Line", "A")
+        yield Df.Act("Line", "B")
+        yield Df.Succeed()
+
+    noActuators = RunNode(Root)
+
+    assert noActuators.Acts == (
+        DfActRecord(Tick=0, Name="Line", Payload="A"),
+        DfActRecord(Tick=0, Name="Line", Payload="B"),
+    )
+
+    def EmitLine(record: DfActRecord, _ctx: DfCtx) -> None:
+        dispatchNames.append(record.Payload if isinstance(record.Payload, str) else "")
+
+    actuators = DfActuatorRegistry()
+    actuators.Register("Line", EmitLine)
+
+    withActuators = RunNode(Root, actuators=actuators)
+
+    assert withActuators.Acts == noActuators.Acts
+    assert dispatchNames == ["A", "B"]
+
+
+def test_RunNodeActuatorHandlerReceivesCtxAndOrderedActs() -> None:
+    seen: list[tuple[int, str, int]] = []
+    ctx = DfCtx()
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Line", "first")
+        yield Df.Wait(2)
+        yield Df.Act("Line", "second")
+        yield Df.Succeed()
+
+    def Capture(record: DfActRecord, captureCtx: DfCtx) -> None:
+        seen.append((record.Tick, str(record.Payload), captureCtx.Tick))
+
+    result = RunNode(Root, ctx=ctx, actuators={"Line": Capture})
+
+    assert result.Status == "Succeeded"
+    assert seen == [(0, "first", 0), (2, "second", 2)]
+
+
+def test_RunNodeUnknownActuatorIsExplicitNoOp() -> None:
+    called: list[str] = []
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Known", "K")
+        yield Df.Act("Unknown", "U")
+        yield Df.Succeed()
+
+    def HandleKnown(record: DfActRecord, _ctx: DfCtx) -> None:
+        called.append(str(record.Payload))
+
+    result = RunNode(Root, actuators={"Known": HandleKnown})
+
+    assert result.Acts == (
+        DfActRecord(Tick=0, Name="Known", Payload="K"),
+        DfActRecord(Tick=0, Name="Unknown", Payload="U"),
+    )
+    assert called == ["K"]
+
+
+def test_RunNodeActuatorFailurePropagates() -> None:
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Boom")
+        yield Df.Succeed()
+
+    def RaiseActuator(_record: DfActRecord, _ctx: DfCtx) -> None:
+        raise RuntimeError("actuator failed")
+
+    with pytest.raises(RuntimeError, match="actuator failed"):
+        _ = RunNode(Root, actuators={"Boom": RaiseActuator})

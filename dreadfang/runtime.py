@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Mapping
 
-from dreadfang.core import Act, Clamp01, Decide, DfCtx, DfNode, DfOp, Fail, Option, Pop, Push, Succeed, Wait
+from dreadfang.core import Act, Clamp01, Decide, DfCtx, DfNode, Fail, Option, Pop, Push, Succeed, Wait
 
 RunStatus = Literal["Succeeded", "Failed", "Incomplete"]
 DfNodeFactory = Callable[[DfCtx], DfNode]
+DfActuatorFn = Callable[["DfActRecord", DfCtx], None]
 
 
 @dataclass(frozen=True)
@@ -60,16 +61,35 @@ class DfRegistry:
         return self.Nodes[target]
 
 
+@dataclass
+class DfActuatorRegistry:
+    """Small explicit lookup surface for Act handlers."""
+
+    Handlers: dict[str, DfActuatorFn] = field(default_factory=dict)
+
+    def Register(self, actName: str, handler: DfActuatorFn) -> None:
+        self.Handlers[actName] = handler
+
+    def Dispatch(self, act: DfActRecord, ctx: DfCtx) -> bool:
+        handler = self.Handlers.get(act.Name)
+        if handler is None:
+            return False
+        handler(act, ctx)
+        return True
+
+
 def RunNode(
     nodeFactory: DfNodeFactory,
     ctx: DfCtx | None = None,
     registry: DfRegistry | Mapping[str, DfNodeFactory] | None = None,
+    actuators: DfActuatorRegistry | Mapping[str, DfActuatorFn] | None = None,
 ) -> DfRunResult:
     runCtx = ctx if ctx is not None else DfCtx()
     accumulator = _RunAccumulator()
     stack: list[DfNode] = [nodeFactory(runCtx)]
     commitmentByFrame: dict[int, _CommitmentState] = {}
     normalizedRegistry = _NormalizeRegistry(registry)
+    normalizedActuators = _NormalizeActuatorRegistry(actuators)
 
     while stack:
         node = stack[-1]
@@ -81,13 +101,13 @@ def RunNode(
         accumulator.StepCount += 1
 
         if isinstance(op, Act):
-            accumulator.Acts.append(
-                DfActRecord(
-                    Tick=runCtx.Tick,
-                    Name=op.Name,
-                    Payload=op.Payload,
-                )
+            actRecord = DfActRecord(
+                Tick=runCtx.Tick,
+                Name=op.Name,
+                Payload=op.Payload,
             )
+            accumulator.Acts.append(actRecord)
+            normalizedActuators.Dispatch(actRecord, runCtx)
             continue
 
         if isinstance(op, Wait):
@@ -245,3 +265,15 @@ def _NormalizeRegistry(
         return registry
 
     return DfRegistry(Nodes=dict(registry))
+
+
+def _NormalizeActuatorRegistry(
+    actuators: DfActuatorRegistry | Mapping[str, DfActuatorFn] | None,
+) -> DfActuatorRegistry:
+    if actuators is None:
+        return DfActuatorRegistry()
+
+    if isinstance(actuators, DfActuatorRegistry):
+        return actuators
+
+    return DfActuatorRegistry(Handlers=dict(actuators))
