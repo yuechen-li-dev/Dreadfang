@@ -26,6 +26,7 @@ _ALLOWED_DF_CALLS: frozenset[str] = frozenset(
     }
 )
 _ALLOWED_BUILTIN_CALLS: frozenset[str] = frozenset({"bool", "float", "int", "len", "str", "tuple"})
+_ALLOWED_STORY_CALLS: frozenset[str] = frozenset({"Line", "Say", "Option", "Choice"})
 _ALLOWED_BINARY_OPERATORS: tuple[type[ast.operator], ...] = (
     ast.Add,
     ast.Sub,
@@ -464,9 +465,18 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
         return False
 
     def _VisitYieldFrom(self, node: ast.YieldFrom) -> None:
-        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
-            calledName = node.value.func.id
-            if calledName in self._moduleFunctionNames:
+        if isinstance(node.value, ast.Call):
+            if isinstance(node.value.func, ast.Name):
+                calledName = node.value.func.id
+                if calledName in self._moduleFunctionNames:
+                    self._VisitCall(node.value)
+                    return
+            if (
+                isinstance(node.value.func, ast.Attribute)
+                and isinstance(node.value.func.value, ast.Name)
+                and node.value.func.value.id == "Story"
+                and node.value.func.attr == "Choice"
+            ):
                 self._VisitCall(node.value)
                 return
 
@@ -485,6 +495,9 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
 
         if isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and node.value.id == "Df" and node.attr in _ALLOWED_DF_CALLS:
+                return True
+
+            if isinstance(node.value, ast.Name) and node.value.id == "Story" and node.attr in _ALLOWED_STORY_CALLS:
                 return True
 
             if node.attr in {"Get", "Set"} and isinstance(node.value, ast.Attribute):

@@ -167,6 +167,14 @@ The utility/commitment sample is split into:
 * `samples/UtilityCommitmentNodes.py` (restricted Dreadfang authoring module; expected to validate)
 * `samples/UtilityCommitmentSample.py` (ordinary Python runtime/config helper module; not expected to validate)
 
+
+The text-adventure sample is split into:
+
+* `samples/text_adventure/StoryNodes.py` (restricted Dreadfang authoring module; expected to validate)
+* `samples/text_adventure/StoryRuntime.py` (ordinary Python runtime wiring + console/actuator boundary; not expected to validate)
+
+The Story adapter in `dreadfang.adapters.story` is intentionally thin sugar over `Df.Act(...)`, `Df.Await(...)`, and `ctx.State.Set(...)`. Choice input still flows through `Df.Message("Story.Choice", value)` into session resume.
+
 Across both samples, `Df.Act(...)` is the contract:
 
 * nodes emit explicit intent with `Df.Act(...)`

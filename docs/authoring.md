@@ -275,3 +275,26 @@ These samples show:
 * Do not mutate state from scorer functions.
 * Do not treat actuator side effects as semantic truth (acts record is truth).
 * Do not force runtime/wiring modules to conform to node-module validator rules.
+
+
+## 9) Story adapter and text-adventure loop (M17)
+
+Dreadfang now includes a thin story adapter in `dreadfang.adapters.story`:
+
+* `Story.Line(text)` -> `Df.Act("Story.Line", {...})`
+* `Story.Say(speaker, text)` -> `Df.Act("Story.Say", {...})`
+* `Story.Option(key, label)` -> tiny option record
+* `yield from Story.Choice(..., StoreAs=TypedKey, ctx=ctx)` -> emits `Story.Choice` act, awaits `Story.Choice` message, validates payload, stores choice in typed state
+
+Boundary split remains strict:
+
+* `samples/text_adventure/StoryNodes.py` is restricted/validated node authoring code
+* `samples/text_adventure/StoryRuntime.py` is ordinary Python boundary wiring and may host console I/O
+
+Choice resume path stays explicit:
+
+1. node yields `Df.Await("Story.Choice")` through adapter helper
+2. runtime injects `Df.Message("Story.Choice", value)`
+3. session resumes and helper stores value to typed state key
+
+No `input()` or other console I/O should exist inside validated node modules.
