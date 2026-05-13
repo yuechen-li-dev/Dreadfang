@@ -57,9 +57,25 @@ class _RunAccumulator:
 @dataclass(frozen=True)
 class DfDecisionRecord:
     Tick: int
+    Frame: str
     Label: str
     Target: str
     Score: float
+
+
+@dataclass(frozen=True)
+class DfFrameIdentity:
+    Name: str
+    Instance: int
+
+    def ToKey(self) -> str:
+        return f"{self.Name}#{self.Instance}"
+
+
+@dataclass
+class _FrameState:
+    Identity: DfFrameIdentity
+    Node: DfNode
 
 
 @dataclass
@@ -106,13 +122,16 @@ def RunNode(
 ) -> DfRunResult:
     runCtx = ctx if ctx is not None else DfCtx()
     accumulator = _RunAccumulator()
-    stack: list[DfNode] = [nodeFactory(runCtx)]
-    commitmentByFrame: dict[int, _CommitmentState] = {}
+    frameInstanceByName: dict[str, int] = {}
+    rootIdentity = _NextFrameIdentity(nodeFactory.__name__, frameInstanceByName)
+    stack: list[_FrameState] = [_FrameState(Identity=rootIdentity, Node=nodeFactory(runCtx))]
+    commitmentByFrame: dict[DfFrameIdentity, _CommitmentState] = {}
     normalizedRegistry = _NormalizeRegistry(registry)
     normalizedActuators = _NormalizeActuatorRegistry(actuators)
 
     while stack:
-        node = stack[-1]
+        frame = stack[-1]
+        node = frame.Node
         try:
             op = next(node)
         except StopIteration:
@@ -163,7 +182,8 @@ def RunNode(
 
         if isinstance(op, Push):
             pushFactory = normalizedRegistry.Resolve(op.Target)
-            stack.append(pushFactory(runCtx))
+            pushIdentity = _NextFrameIdentity(op.Target, frameInstanceByName)
+            stack.append(_FrameState(Identity=pushIdentity, Node=pushFactory(runCtx)))
             continue
 
         if isinstance(op, Decide):
@@ -174,13 +194,14 @@ def RunNode(
                 stack=stack,
                 commitmentByFrame=commitmentByFrame,
                 accumulator=accumulator,
+                frameInstanceByName=frameInstanceByName,
             )
             continue
 
         if isinstance(op, Pop):
             if len(stack) == 1:
                 raise ValueError("Pop cannot be used at root")
-            commitmentByFrame.pop(id(stack[-1]), None)
+            commitmentByFrame.pop(stack[-1].Identity, None)
             stack.pop()
             continue
 
@@ -271,9 +292,10 @@ def _ApplyDecide(
     ctx: DfCtx,
     decideOp: Decide,
     normalizedRegistry: DfRegistry,
-    stack: list[DfNode],
-    commitmentByFrame: dict[int, _CommitmentState],
+    stack: list[_FrameState],
+    commitmentByFrame: dict[DfFrameIdentity, _CommitmentState],
     accumulator: _RunAccumulator,
+    frameInstanceByName: dict[str, int],
 ) -> None:
     if len(decideOp.Options) == 0:
         raise ValueError("Decide requires at least one option")
@@ -282,7 +304,7 @@ def _ApplyDecide(
     if decideOp.Hysteresis < 0.0:
         raise ValueError("Decide hysteresis must be >= 0.0")
 
-    frameId = id(stack[-1])
+    frameId = stack[-1].Identity
     scoredOptions = _ScoreOptions(decideOp.Options, ctx)
     rawBest = scoredOptions[0]
     committed = commitmentByFrame.get(frameId)
@@ -306,6 +328,7 @@ def _ApplyDecide(
     accumulator.Decisions.append(
         DfDecisionRecord(
             Tick=ctx.Tick,
+            Frame=frameId.ToKey(),
             Label=chosen.Label,
             Target=chosen.Target,
             Score=chosen.Score,
@@ -313,7 +336,14 @@ def _ApplyDecide(
     )
 
     pushFactory = normalizedRegistry.Resolve(chosen.Target)
-    stack.append(pushFactory(ctx))
+    pushIdentity = _NextFrameIdentity(chosen.Target, frameInstanceByName)
+    stack.append(_FrameState(Identity=pushIdentity, Node=pushFactory(ctx)))
+
+
+def _NextFrameIdentity(name: str, frameInstanceByName: dict[str, int]) -> DfFrameIdentity:
+    currentCount = frameInstanceByName.get(name, 0)
+    frameInstanceByName[name] = currentCount + 1
+    return DfFrameIdentity(Name=name, Instance=currentCount)
 
 
 def _ScoreOptions(options: tuple[Option, ...], ctx: DfCtx) -> list[_ScoredOption]:
