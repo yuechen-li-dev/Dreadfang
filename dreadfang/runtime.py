@@ -46,6 +46,7 @@ class DfRunResult:
     StepCount: int
     FailureReason: object | None = None
     WaitingOn: str | None = None
+    DirtyKeys: tuple[str, ...] = ()
 
 
 @dataclass
@@ -141,6 +142,7 @@ class DfSession:
         self.Ctx.Mailbox.append(message)
 
     def RunUntilBlocked(self) -> DfRunResult:
+        self.Ctx.State.ClearDirty()
         while self._Stack:
             frame = self._Stack[-1]
             op = self._PendingOp
@@ -221,6 +223,7 @@ class DfSession:
             StepCount=self._Accumulator.StepCount,
             FailureReason=failureReason,
             WaitingOn=waitingOn,
+            DirtyKeys=self.Ctx.State.DirtyKeys(),
         )
 
 

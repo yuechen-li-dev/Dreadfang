@@ -224,3 +224,45 @@ def test_PushPopAuthoringShape() -> None:
 
     yielded = list(StackNode(DfCtx()))
     assert yielded == [Push(Target="Combat"), Pop(Payload={"return": "idle"})]
+
+
+def test_DfStateDirtyTrackingHelpers() -> None:
+    state = DfState()
+    mode = Df.Key("Mode", str)
+    attempts = Df.Key("RecoverAttempts", int)
+
+    state.Set(mode, "patrol")
+    state.Set(mode, "recover")
+    state.Set(attempts, 2)
+
+    assert state.IsDirty(mode) is True
+    assert state.IsDirty("Mode") is True
+    assert state.DirtyKeys() == ("Mode", "RecoverAttempts")
+
+    state.ClearDirty()
+    assert state.DirtyKeys() == ()
+    assert state.IsDirty(mode) is False
+
+
+def test_DfStateFailedTypedSetDoesNotMarkDirty() -> None:
+    state = DfState()
+    attempts = Df.Key("RecoverAttempts", int)
+
+    with pytest.raises(TypeError, match="expects int value"):
+        state.Set(attempts, "bad")
+
+    assert state.DirtyKeys() == ()
+
+
+def test_DfStateTypedCollisionDoesNotMarkDirty() -> None:
+    state = DfState()
+    modeAsStr = Df.Key("Mode", str)
+    modeAsInt = Df.Key("Mode", int)
+
+    state.Set(modeAsStr, "patrol")
+    state.ClearDirty()
+
+    with pytest.raises(TypeError, match="already registered with type str"):
+        state.Set(modeAsInt, 1)
+
+    assert state.DirtyKeys() == ()

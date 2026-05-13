@@ -137,6 +137,20 @@ Loop subset limits:
 * prefer loops over recursive `yield from` when repeating a finite sequence.
 
 
+Dirty-state observability is automatic:
+
+* `ctx.State.Set(...)` marks the written key dirty (typed `DfKey` names and compatibility string keys).
+* Repeated writes to the same key in one run segment record that key once.
+* `ctx.State.DirtyKeys()` returns a deterministic sorted tuple of dirty key names.
+* `ctx.State.IsDirty(key)` checks whether a key was written in the current dirty window.
+* `ctx.State.ClearDirty()` clears the current dirty window (usually runtime-managed).
+
+Run-boundary behavior:
+
+* `RunNode(...)` and each `DfSession.RunUntilBlocked(...)` invocation clear dirty keys at invocation start.
+* `DfRunResult.DirtyKeys` reports keys written during that run segment only.
+* This is runtime observability for tests/debugging; it is not yet a full per-yield trace or persistence system.
+
 * Runtime/wiring code may populate `ctx.Mailbox` with explicit `DfMessage` values (for example `Df.Message("Choice", "proud")`).
 * Restricted node modules should wait using `yield Df.Await("Choice")`.
 * On a successful await match, runtime consumes the first matching mailbox message and stores it in `ctx.LastMessage`.

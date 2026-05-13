@@ -726,3 +726,49 @@ def test_DfSessionResumesInsideForLoopAfterWaitUntil() -> None:
         DfActRecord(Tick=0, Name="ReadySeen", Payload=None),
         DfActRecord(Tick=1, Name="ReadySeen", Payload=None),
     )
+
+
+def test_RunNodeExposesDirtyKeysForSegmentWrites() -> None:
+    mode = Df.Key("Mode", str)
+
+    def Root(ctx: DfCtx) -> DfNode:
+        ctx.State.Set(mode, "patrol")
+        yield Df.Act("SetMode")
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+    assert result.DirtyKeys == ("Mode",)
+
+
+def test_RunNodeReadOnlyHasNoDirtyKeys() -> None:
+    mode = Df.Key("Mode", str)
+
+    def Root(ctx: DfCtx) -> DfNode:
+        _ = ctx.State.Get(mode, "idle")
+        yield Df.Act("ReadOnly")
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+    assert result.DirtyKeys == ()
+
+
+def test_DfSessionDirtyKeysAreSegmentLocalAcrossResume() -> None:
+    mode = Df.Key("Mode", str)
+    attempts = Df.Key("RecoverAttempts", int)
+
+    def Root(ctx: DfCtx) -> DfNode:
+        ctx.State.Set(mode, "recover")
+        yield Df.Await("Continue")
+        ctx.State.Set(attempts, 1)
+        yield Df.Succeed()
+
+    session = DfSession(NodeFactory=Root)
+
+    first = session.RunUntilBlocked()
+    assert first.Status == "Waiting"
+    assert first.DirtyKeys == ("Mode",)
+
+    session.AddMessage(Df.Message("Continue"))
+    second = session.RunUntilBlocked()
+    assert second.Status == "Succeeded"
+    assert second.DirtyKeys == ("RecoverAttempts",)
