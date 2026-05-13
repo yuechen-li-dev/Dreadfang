@@ -89,6 +89,18 @@ Guidance:
 
 * `ctx.State.Get(key, default)`
 * `ctx.State.Set(key, value)`
+
+Preferred authoring pattern in restricted node modules is typed keys declared at module top-level:
+
+```python
+Mode = Df.Key("Mode", str)
+RecoverAttempts = Df.Key("RecoverAttempts", int)
+
+ctx.State.Set(Mode, "patrol")
+attempts = ctx.State.Get(RecoverAttempts, 0)
+```
+
+Typed keys enforce strict runtime type checks on both `Set` values and `Get` defaults. Raw string keys remain compatibility-only and are not the preferred authoring path.
 * `ctx.Tick`
 * `ctx.Mailbox`
 

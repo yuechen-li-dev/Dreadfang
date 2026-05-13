@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from types import ModuleType
 
 from dreadfang.core import Df, DfCtx
 from dreadfang.runtime import DfNodeFactory, DfRegistry, DfRunResult, RunNode
-import samples.UtilityCommitmentNodes as UtilityCommitmentNodes
 
-UtilityCommitmentNodes.Df = Df
+
+def _LoadNodesModule() -> ModuleType:
+    module = ModuleType("UtilityCommitmentNodes")
+    module.Df = Df
+    modulePath = Path(__file__).with_name("UtilityCommitmentNodes.py")
+    sourceText = modulePath.read_text(encoding="utf-8")
+    exec(sourceText, module.__dict__)
+    return module
+
+
+UtilityCommitmentNodes = _LoadNodesModule()
 Root = UtilityCommitmentNodes.Root
 TrackBeat = UtilityCommitmentNodes.TrackBeat
 RecoverBeat = UtilityCommitmentNodes.RecoverBeat

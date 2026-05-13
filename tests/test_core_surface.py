@@ -9,6 +9,7 @@ from dreadfang.core import (
     Clamp01,
     Decide,
     Df,
+    DfKey,
     DfCtx,
     DfNode,
     DfState,
@@ -32,6 +33,63 @@ def test_DfStateGetSet() -> None:
 
     state.Set("hp", 10)
     assert state.Get("hp") == 10
+
+
+def test_DfKeyAndTypedDfStateAccess() -> None:
+    state = DfState()
+    mode = Df.Key("Mode", str)
+    recoverAttempts = Df.Key("RecoverAttempts", int)
+    signal = Df.Key("Signal", float)
+    forceRecover = Df.Key("ForceRecover", bool)
+
+    assert isinstance(mode, DfKey)
+    assert mode.Name == "Mode"
+    assert mode.ValueType is str
+
+    state.Set(mode, "patrol")
+    state.Set(recoverAttempts, 1)
+    state.Set(signal, 0.5)
+    state.Set(forceRecover, True)
+
+    assert state.Get(mode, "idle") == "patrol"
+    assert state.Get(recoverAttempts, 0) == 1
+    assert state.Get(signal, 0.0) == 0.5
+    assert state.Get(forceRecover, False) is True
+
+
+def test_DfStateTypedDefaultAndTypeErrors() -> None:
+    state = DfState()
+    recoverAttempts = Df.Key("RecoverAttempts", int)
+
+    assert state.Get(recoverAttempts, 0) == 0
+
+    try:
+        state.Set(recoverAttempts, "one")
+        assert False, "expected TypeError"
+    except TypeError as error:
+        assert "expects int value" in str(error)
+
+    try:
+        state.Get(recoverAttempts, "zero")
+        assert False, "expected TypeError"
+    except TypeError as error:
+        assert "expects int default" in str(error)
+
+
+def test_DfStateTypedNameCollisionDetected() -> None:
+    state = DfState()
+    modeAsStr = Df.Key("Mode", str)
+    modeAsStr2 = Df.Key("Mode", str)
+    modeAsInt = Df.Key("Mode", int)
+
+    state.Set(modeAsStr, "patrol")
+    state.Set(modeAsStr2, "recover")
+
+    try:
+        state.Get(modeAsInt, 0)
+        assert False, "expected TypeError"
+    except TypeError as error:
+        assert "already registered with type str" in str(error)
 
 
 def test_DfCtxDefaults() -> None:

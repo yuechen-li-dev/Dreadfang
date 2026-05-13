@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Generator, Iterable, TypeAlias
+from typing import Callable, Generator, Generic, Iterable, TypeAlias, TypeVar
+
+
+TValue = TypeVar("TValue")
+
+
+@dataclass(frozen=True)
+class DfKey(Generic[TValue]):
+    Name: str
+    ValueType: type[TValue]
 
 
 class DfOp:
@@ -17,12 +26,41 @@ class DfState:
     """Small explicit state bag for authored nodes."""
 
     _values: dict[str, object] = field(default_factory=dict)
+    _keyTypes: dict[str, type[object]] = field(default_factory=dict)
 
-    def Get(self, key: str, default: object | None = None) -> object | None:
+    def Get(self, key: str | DfKey[TValue], default: TValue | None = None) -> object | TValue | None:
+        if isinstance(key, DfKey):
+            self._RegisterTypedKey(key)
+            if default is not None:
+                self._ValidateType(key.Name, key.ValueType, default, "default")
+            return self._values.get(key.Name, default)
         return self._values.get(key, default)
 
-    def Set(self, key: str, value: object) -> None:
+    def Set(self, key: str | DfKey[TValue], value: object) -> None:
+        if isinstance(key, DfKey):
+            self._RegisterTypedKey(key)
+            self._ValidateType(key.Name, key.ValueType, value, "value")
+            self._values[key.Name] = value
+            return
         self._values[key] = value
+
+    def _RegisterTypedKey(self, key: DfKey[object]) -> None:
+        existingType = self._keyTypes.get(key.Name)
+        if existingType is None:
+            self._keyTypes[key.Name] = key.ValueType
+            return
+        if existingType is not key.ValueType:
+            raise TypeError(
+                f"State key '{key.Name}' already registered with type "
+                f"{existingType.__name__}, cannot use {key.ValueType.__name__}"
+            )
+
+    def _ValidateType(self, keyName: str, expectedType: type[object], value: object, valueLabel: str) -> None:
+        if type(value) is not expectedType:
+            raise TypeError(
+                f"State key '{keyName}' expects {expectedType.__name__} {valueLabel}, "
+                f"got {type(value).__name__}"
+            )
 
 
 @dataclass
@@ -179,3 +217,6 @@ class Df:
             Hysteresis=hysteresis,
             MinCommitTicks=min_commit_ticks,
         )
+    @staticmethod
+    def Key(name: str, valueType: type[TValue]) -> DfKey[TValue]:
+        return DfKey(Name=name, ValueType=valueType)

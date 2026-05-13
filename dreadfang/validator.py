@@ -9,6 +9,7 @@ _ALLOWED_DF_CALLS: frozenset[str] = frozenset(
         "Act",
         "Await",
         "Decide",
+        "Key",
         "Event",
         "Fail",
         "Option",
@@ -19,7 +20,7 @@ _ALLOWED_DF_CALLS: frozenset[str] = frozenset(
         "Wait",
     }
 )
-_ALLOWED_BUILTIN_CALLS: frozenset[str] = frozenset({"bool", "float", "int", "len", "str"})
+_ALLOWED_BUILTIN_CALLS: frozenset[str] = frozenset({"bool", "float", "int", "len", "str", "tuple"})
 _ALLOWED_BINARY_OPERATORS: tuple[type[ast.operator], ...] = (
     ast.Add,
     ast.Sub,
@@ -112,10 +113,45 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
                 self._VisitFunctionDef(statement)
                 continue
 
+            if isinstance(statement, ast.Assign):
+                self._VisitModuleLevelAssign(statement)
+                continue
+
             self._Reject(
                 statement,
                 "only module-level function definitions are allowed in Dreadfang authoring modules",
             )
+
+    def _VisitModuleLevelAssign(self, node: ast.Assign) -> None:
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            self._Reject(node, "module-level assignment target must be a name")
+            return
+
+        if not self._IsTypedKeyConstruction(node.value):
+            self._Reject(
+                node,
+                "module-level assignments must be Df.Key(<name>, <type>) typed-key constants",
+            )
+            return
+
+        self._VisitCall(node.value)
+
+    def _IsTypedKeyConstruction(self, node: ast.expr) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        if not isinstance(node.func, ast.Attribute):
+            return False
+        if not isinstance(node.func.value, ast.Name):
+            return False
+        if node.func.value.id != "Df" or node.func.attr != "Key":
+            return False
+        if len(node.args) != 2 or len(node.keywords) != 0:
+            return False
+        nameArg = node.args[0]
+        typeArg = node.args[1]
+        if not isinstance(nameArg, ast.Constant) or not isinstance(nameArg.value, str):
+            return False
+        return isinstance(typeArg, ast.Name) and typeArg.id in _ALLOWED_BUILTIN_CALLS
 
     def _VisitFunctionDef(self, node: ast.FunctionDef) -> None:
         if node.decorator_list:
