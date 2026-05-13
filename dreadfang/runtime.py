@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Mapping
 
-from dreadfang.core import Act, Clamp01, Decide, DfCtx, DfNode, Fail, Option, Pop, Push, Succeed, Wait
+from dreadfang.core import Act, Await, Clamp01, Decide, DfCtx, DfNode, Fail, Option, Pop, Push, Succeed, Wait
 
-RunStatus = Literal["Succeeded", "Failed", "Incomplete"]
+RunStatus = Literal["Succeeded", "Failed", "Incomplete", "Waiting"]
 DfNodeFactory = Callable[[DfCtx], DfNode]
 DfActuatorFn = Callable[["DfActRecord", DfCtx], None]
 
@@ -25,6 +25,7 @@ class DfRunResult:
     Decisions: tuple["DfDecisionRecord", ...]
     StepCount: int
     FailureReason: object | None = None
+    WaitingOn: str | None = None
 
 
 @dataclass
@@ -114,6 +115,20 @@ def RunNode(
             _ApplyWait(runCtx, op)
             continue
 
+        if isinstance(op, Await):
+            waited = _ApplyAwait(runCtx, op)
+            if not waited:
+                return DfRunResult(
+                    Status="Waiting",
+                    Tick=runCtx.Tick,
+                    Acts=tuple(accumulator.Acts),
+                    Decisions=tuple(accumulator.Decisions),
+                    StepCount=accumulator.StepCount,
+                    FailureReason=None,
+                    WaitingOn=op.Name,
+                )
+            continue
+
         if isinstance(op, Push):
             pushFactory = normalizedRegistry.Resolve(op.Target)
             stack.append(pushFactory(runCtx))
@@ -148,6 +163,7 @@ def RunNode(
                 Decisions=tuple(accumulator.Decisions),
                 StepCount=accumulator.StepCount,
                 FailureReason=None,
+                WaitingOn=None,
             )
 
         if isinstance(op, Fail):
@@ -158,6 +174,7 @@ def RunNode(
                 Decisions=tuple(accumulator.Decisions),
                 StepCount=accumulator.StepCount,
                 FailureReason=op.Reason,
+                WaitingOn=None,
             )
 
         raise TypeError(f"Unsupported Dreadfang op for M1c runner: {type(op).__name__}")
@@ -169,6 +186,7 @@ def RunNode(
         Decisions=tuple(accumulator.Decisions),
         StepCount=accumulator.StepCount,
         FailureReason=None,
+        WaitingOn=None,
     )
 
 
@@ -177,6 +195,16 @@ def _ApplyWait(ctx: DfCtx, waitOp: Wait) -> None:
         raise ValueError("Wait ticks must be >= 0")
 
     ctx.Tick += waitOp.Ticks
+
+
+def _ApplyAwait(ctx: DfCtx, awaitOp: Await) -> bool:
+    for index, message in enumerate(ctx.Mailbox):
+        if message.Name != awaitOp.Name:
+            continue
+        ctx.LastMessage = message
+        del ctx.Mailbox[index]
+        return True
+    return False
 
 
 def _ApplyDecide(

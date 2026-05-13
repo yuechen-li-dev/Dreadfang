@@ -103,8 +103,18 @@ attempts = ctx.State.Get(RecoverAttempts, 0)
 Typed keys enforce strict runtime type checks on both `Set` values and `Get` defaults. Raw string keys remain compatibility-only and are not the preferred authoring path.
 * `ctx.Tick`
 * `ctx.Mailbox`
+* `ctx.LastMessage`
 
 `Tick` advances from runtime ops like `Df.Wait(...)`. Keep state keys small, explicit, and stable (`"mode"`, `"signalIndex"`, etc.), as shown in sample nodes.
+
+Mailbox boundary:
+
+* Runtime/wiring code may populate `ctx.Mailbox` with explicit `DfMessage` values (for example `Df.Message("Choice", "proud")`).
+* Restricted node modules should wait using `yield Df.Await("Choice")`.
+* On a successful await match, runtime consumes the first matching mailbox message and stores it in `ctx.LastMessage`.
+* Restricted node modules may read `ctx.LastMessage`, `ctx.LastMessage.Name`, and `ctx.LastMessage.Payload`.
+* Direct `ctx.Mailbox` reads/mutation are rejected by the validator for restricted node modules.
+* If no message matches, runtime returns `Status="Waiting"` with `WaitingOn` set to the awaited message name. This is a terminal result for the invocation, not yet a resumable session system.
 
 ## 6) Actuation and actuators
 
@@ -201,4 +211,3 @@ These samples show:
 * Do not mutate state from scorer functions.
 * Do not treat actuator side effects as semantic truth (acts record is truth).
 * Do not force runtime/wiring modules to conform to node-module validator rules.
-

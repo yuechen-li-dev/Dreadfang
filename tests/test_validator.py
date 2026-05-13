@@ -20,6 +20,21 @@ def PatrolNode(ctx):
     assert result.Diagnostics == ()
 
 
+def test_ValidateSourceAcceptsAwaitAndLastMessageRead() -> None:
+    source = '''
+def Node(ctx):
+    yield Df.Await("Choice")
+    if ctx.LastMessage is not None and ctx.LastMessage.Payload == "proud":
+        yield Df.Act("Branch", "proud")
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
 def test_ValidateSourceAcceptsTypedStateKeyConstants() -> None:
     source = '''
 Mode = Df.Key("Mode", str)
@@ -129,6 +144,21 @@ def Node(ctx):
     messages = tuple(diagnostic.Message for diagnostic in result.Diagnostics)
     assert "call target is not in the allowed Dreadfang subset" in messages
     assert "yield from is only allowed when delegating to a module-defined Dreadfang function" in messages
+
+
+def test_ValidateSourceRejectsDirectMailboxAccessAndMutation() -> None:
+    source = '''
+def Node(ctx):
+    first = ctx.Mailbox[0]
+    ctx.Mailbox.append(first)
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is False
+    messages = tuple(diagnostic.Message for diagnostic in result.Diagnostics)
+    assert "direct ctx.Mailbox access is not allowed in restricted node modules" in messages
 
 
 def test_ValidateSourceReportsDeterministicOrderAndCoordinates() -> None:
