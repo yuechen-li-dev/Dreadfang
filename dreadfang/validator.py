@@ -93,6 +93,7 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
     def __init__(self, module: ast.Module) -> None:
         self._module = module
         self._diagnostics: list[DfValidationDiagnostic] = []
+        self._loopDepth = 0
         self._moduleFunctionNames = {
             statement.name
             for statement in module.body
@@ -221,6 +222,22 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
             self._Reject(node, "nested function definitions are not allowed")
             return
 
+        if isinstance(node, ast.For):
+            self._VisitForStatement(node)
+            return
+
+        if isinstance(node, ast.While):
+            self._Reject(node, "while loops are not allowed in Dreadfang authoring modules")
+            return
+
+        if isinstance(node, ast.Break):
+            self._Reject(node, "break is not allowed in Dreadfang authoring modules")
+            return
+
+        if isinstance(node, ast.Continue):
+            self._Reject(node, "continue is not allowed in Dreadfang authoring modules")
+            return
+
         if isinstance(node, ast.If):
             self._VisitExpression(node.test)
             for child in node.body:
@@ -245,6 +262,8 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
             return
 
         if isinstance(node, ast.Return):
+            if self._loopDepth > 0:
+                self._Reject(node, "return is not allowed inside for-loop bodies")
             if node.value is not None:
                 self._VisitExpression(node.value)
             return
@@ -260,6 +279,44 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
             node,
             f"{type(node).__name__} statements are not allowed in Dreadfang authoring code",
         )
+
+    def _VisitForStatement(self, node: ast.For) -> None:
+        if self._loopDepth > 0:
+            self._Reject(node, "nested for loops are not allowed in Dreadfang authoring modules")
+
+        if node.orelse:
+            self._Reject(node, "for/else is not allowed in Dreadfang authoring modules")
+
+        if not isinstance(node.target, ast.Name):
+            self._Reject(node.target, "for-loop target must be a single local name")
+
+        if self._ContainsMailboxAttribute(node.iter):
+            self._Reject(node.iter, "direct ctx.Mailbox access is not allowed in restricted node modules")
+        elif not self._IsAllowedForIterable(node.iter):
+            self._Reject(node.iter, "for-loop iterable must be a local name or tuple literal of simple literals")
+        else:
+            self._VisitExpression(node.iter)
+
+        self._loopDepth += 1
+        try:
+            for child in node.body:
+                self._VisitStatement(child)
+        finally:
+            self._loopDepth -= 1
+
+    def _IsAllowedForIterable(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return True
+
+        if isinstance(node, ast.Tuple):
+            for element in node.elts:
+                if not isinstance(element, ast.Constant):
+                    return False
+                if not isinstance(element.value, (str, int, float, bool, type(None))):
+                    return False
+            return True
+
+        return False
 
     def _VisitAssignmentTarget(self, node: ast.expr) -> None:
         if isinstance(node, ast.Name):

@@ -118,6 +118,25 @@ Waiting primitives:
 
 Mailbox boundary:
 
+Restricted `for` loops are allowed for finite deterministic iteration in node modules.
+
+Allowed shape:
+
+```python
+signals = ctx.State.Get(SignalSeries, ())
+for signal in signals:
+    yield Df.Act("SignalObserved", signal)
+    yield Df.Wait(1)
+```
+
+Loop subset limits:
+
+* only `for item in items:` where target is one local name;
+* iterable must be either a local variable name or a tuple literal of simple literals;
+* no `while`, `break`, `continue`, `for/else`, nested `for`, tuple unpacking targets, comprehensions, generator expressions, `range(...)`, or direct `ctx.Mailbox` iteration.
+* prefer loops over recursive `yield from` when repeating a finite sequence.
+
+
 * Runtime/wiring code may populate `ctx.Mailbox` with explicit `DfMessage` values (for example `Df.Message("Choice", "proud")`).
 * Restricted node modules should wait using `yield Df.Await("Choice")`.
 * On a successful await match, runtime consumes the first matching mailbox message and stores it in `ctx.LastMessage`.

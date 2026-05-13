@@ -655,3 +655,74 @@ def test_RunNodeActuatorFailurePropagates() -> None:
 
     with pytest.raises(RuntimeError, match="actuator failed"):
         _ = RunNode(Root, actuators={"Boom": RaiseActuator})
+
+
+def test_RunNodeForLoopEmitsOrderedActsAndWaitTicks() -> None:
+    def Root(_ctx: DfCtx) -> DfNode:
+        for beat in ("Look", "Step", "Listen"):
+            yield Df.Act("Beat", beat)
+            yield Df.Wait(1)
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+
+    assert result.Status == "Succeeded"
+    assert result.Tick == 3
+    assert result.Acts == (
+        DfActRecord(Tick=0, Name="Beat", Payload="Look"),
+        DfActRecord(Tick=1, Name="Beat", Payload="Step"),
+        DfActRecord(Tick=2, Name="Beat", Payload="Listen"),
+    )
+
+
+def test_DfSessionResumesInsideForLoopAfterAwait() -> None:
+    def Root(ctx: DfCtx) -> DfNode:
+        for expected in ("A", "B"):
+            yield Df.Await("Signal")
+            yield Df.Act("Got", {"expected": expected, "value": ctx.LastMessage.Payload})
+        yield Df.Succeed()
+
+    session = DfSession(NodeFactory=Root)
+
+    first = session.RunUntilBlocked()
+    assert first.Status == "Waiting"
+    assert first.WaitingOn == "Signal"
+
+    session.AddMessage(Df.Message("Signal", "A"))
+    second = session.RunUntilBlocked()
+    assert second.Status == "Waiting"
+    assert second.Acts == (DfActRecord(Tick=0, Name="Got", Payload={"expected": "A", "value": "A"}),)
+
+    session.AddMessage(Df.Message("Signal", "B"))
+    third = session.RunUntilBlocked()
+    assert third.Status == "Succeeded"
+    assert third.Acts == (
+        DfActRecord(Tick=0, Name="Got", Payload={"expected": "A", "value": "A"}),
+        DfActRecord(Tick=0, Name="Got", Payload={"expected": "B", "value": "B"}),
+    )
+
+
+def test_DfSessionResumesInsideForLoopAfterWaitUntil() -> None:
+    ready = Df.Key("Ready", bool)
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        for _step in (1, 2):
+            yield Df.WaitUntil(Df.StateEquals(ready, True))
+            yield Df.Act("ReadySeen")
+            yield Df.Wait(1)
+        yield Df.Succeed()
+
+    session = DfSession(NodeFactory=Root)
+
+    first = session.RunUntilBlocked()
+    assert first.Status == "Waiting"
+    assert first.WaitingOn == "Ready == True"
+
+    session.Ctx.State.Set(ready, True)
+    second = session.RunUntilBlocked()
+    assert second.Status == "Succeeded"
+    assert second.Tick == 2
+    assert second.Acts == (
+        DfActRecord(Tick=0, Name="ReadySeen", Payload=None),
+        DfActRecord(Tick=1, Name="ReadySeen", Payload=None),
+    )

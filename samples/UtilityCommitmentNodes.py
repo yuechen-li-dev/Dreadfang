@@ -17,18 +17,13 @@ def RecoverScore(ctx):
 
 
 def Root(ctx):
-    ctx.State.Set(SignalIndex, 0)
-    yield from StepSignals(ctx)
-    yield Df.Succeed()
-
-
-def StepSignals(ctx):
     signalSeries = ctx.State.Get(SignalSeries, ())
-    signalIndex = ctx.State.Get(SignalIndex, 0)
+    signalIndex = 0
 
-    if signalIndex < len(signalSeries):
-        signal = float(signalSeries[signalIndex])
+    for sample in signalSeries:
+        signal = float(sample)
         ctx.State.Set(Signal, signal)
+        ctx.State.Set(SignalIndex, signalIndex)
         yield Df.Act("SignalObserved", {"signal": signal})
         yield Df.Decide(
             [
@@ -39,8 +34,9 @@ def StepSignals(ctx):
             min_commit_ticks=ctx.State.Get(MinCommitTicks, 0),
         )
         yield Df.Wait(1)
-        ctx.State.Set(SignalIndex, signalIndex + 1)
-        yield from StepSignals(ctx)
+        signalIndex = signalIndex + 1
+
+    yield Df.Succeed()
 
 
 def TrackBeat(_ctx):
