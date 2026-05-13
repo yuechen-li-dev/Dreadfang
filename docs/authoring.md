@@ -115,7 +115,6 @@ Waiting primitives:
 * `Df.WaitUntil(...)` accepts condition objects built via `Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, or `Df.StateAtMost`.
 * Predicate callables/lambdas are not supported in `Df.WaitUntil`.
 * False `WaitUntil` conditions return `Status="Waiting"` with a readable condition in `WaitingOn`.
-* This is a boundary for one invocation only; no resumable session object exists yet.
 
 Mailbox boundary:
 
@@ -124,7 +123,24 @@ Mailbox boundary:
 * On a successful await match, runtime consumes the first matching mailbox message and stores it in `ctx.LastMessage`.
 * Restricted node modules may read `ctx.LastMessage`, `ctx.LastMessage.Name`, and `ctx.LastMessage.Payload`.
 * Direct `ctx.Mailbox` reads/mutation are rejected by the validator for restricted node modules.
-* If no message matches, runtime returns `Status="Waiting"` with `WaitingOn` set to the awaited message name. This is a terminal result for the invocation, not yet a resumable session system.
+* If no message matches, runtime returns `Status="Waiting"` with `WaitingOn` set to the awaited message name.
+
+## 5b) One-shot run vs resumable session
+
+`RunNode(...)` remains the one-shot convenience API: it creates a fresh runtime session and runs until `Succeeded`, `Failed`, `Waiting`, or `Incomplete`.
+
+For in-memory continuation, use `DfSession`:
+
+* `session = DfSession(NodeFactory=Root, Ctx=ctx, Registry=registry, Actuators=actuators)`
+* `session.RunUntilBlocked()` continues the same live generator stack until it reaches a terminal/waiting boundary.
+* `session.AddMessage(Df.Message(...))` appends mailbox input before resuming.
+* Typed state updates via `session.Ctx.State.Set(...)` can satisfy a previously-false `Df.WaitUntil(...)` on a later run.
+
+Session semantics are intentionally small:
+
+* cumulative `Acts`, `Decisions`, `StepCount`, and `Tick` are preserved across repeated `RunUntilBlocked()` calls;
+* stack state and utility commitment memory remain live across waiting boundaries;
+* this is in-memory runtime continuation only (no generator serialization, no save/restore, no async scheduler).
 
 ## 6) Actuation and actuators
 

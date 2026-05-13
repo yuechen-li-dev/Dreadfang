@@ -10,6 +10,7 @@ from dreadfang.core import (
     Decide,
     DfCondition,
     DfCtx,
+    DfMessage,
     DfNode,
     Fail,
     Option,
@@ -114,133 +115,128 @@ class DfActuatorRegistry:
         return True
 
 
+@dataclass
+class DfSession:
+    NodeFactory: DfNodeFactory
+    Ctx: DfCtx = field(default_factory=DfCtx)
+    Registry: DfRegistry | Mapping[str, DfNodeFactory] | None = None
+    Actuators: DfActuatorRegistry | Mapping[str, DfActuatorFn] | None = None
+    _Accumulator: _RunAccumulator = field(default_factory=_RunAccumulator, init=False)
+    _FrameInstanceByName: dict[str, int] = field(default_factory=dict, init=False)
+    _Stack: list[_FrameState] = field(default_factory=list, init=False)
+    _CommitmentByFrame: dict[DfFrameIdentity, _CommitmentState] = field(default_factory=dict, init=False)
+    _PendingOp: Await | WaitUntil | None = field(default=None, init=False)
+    _NormalizedRegistry: DfRegistry = field(init=False)
+    _NormalizedActuators: DfActuatorRegistry = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._NormalizedRegistry = _NormalizeRegistry(self.Registry)
+        self._NormalizedActuators = _NormalizeActuatorRegistry(self.Actuators)
+        rootIdentity = _NextFrameIdentity(self.NodeFactory.__name__, self._FrameInstanceByName)
+        self._Stack = [_FrameState(Identity=rootIdentity, Node=self.NodeFactory(self.Ctx))]
+
+    def AddMessage(self, message: object) -> None:
+        if not isinstance(message, DfMessage):
+            raise TypeError("AddMessage expects a DfMessage")
+        self.Ctx.Mailbox.append(message)
+
+    def RunUntilBlocked(self) -> DfRunResult:
+        while self._Stack:
+            frame = self._Stack[-1]
+            op = self._PendingOp
+            if op is None:
+                try:
+                    op = next(frame.Node)
+                except StopIteration:
+                    self._Stack.pop()
+                    continue
+            else:
+                self._PendingOp = None
+            self._Accumulator.StepCount += 1
+
+            if isinstance(op, Act):
+                actRecord = DfActRecord(Tick=self.Ctx.Tick, Name=op.Name, Payload=op.Payload)
+                self._Accumulator.Acts.append(actRecord)
+                self._NormalizedActuators.Dispatch(actRecord, self.Ctx)
+                continue
+            if isinstance(op, Wait):
+                _ApplyWait(self.Ctx, op)
+                continue
+            if isinstance(op, Await):
+                if not _ApplyAwait(self.Ctx, op):
+                    self._PendingOp = op
+                    return self._BuildResult("Waiting", waitingOn=op.Name)
+                continue
+            if isinstance(op, WaitUntil):
+                if not _EvaluateCondition(self.Ctx, op.Condition):
+                    self._PendingOp = op
+                    return self._BuildResult("Waiting", waitingOn=_DescribeCondition(op.Condition))
+                continue
+            if isinstance(op, Push):
+                pushFactory = self._NormalizedRegistry.Resolve(op.Target)
+                pushIdentity = _NextFrameIdentity(op.Target, self._FrameInstanceByName)
+                self._Stack.append(_FrameState(Identity=pushIdentity, Node=pushFactory(self.Ctx)))
+                continue
+            if isinstance(op, Decide):
+                _ApplyDecide(
+                    ctx=self.Ctx,
+                    decideOp=op,
+                    normalizedRegistry=self._NormalizedRegistry,
+                    stack=self._Stack,
+                    commitmentByFrame=self._CommitmentByFrame,
+                    accumulator=self._Accumulator,
+                    frameInstanceByName=self._FrameInstanceByName,
+                )
+                continue
+            if isinstance(op, Pop):
+                if len(self._Stack) == 1:
+                    raise ValueError("Pop cannot be used at root")
+                self._CommitmentByFrame.pop(self._Stack[-1].Identity, None)
+                self._Stack.pop()
+                continue
+            if isinstance(op, Succeed):
+                if len(self._Stack) > 1:
+                    self._Stack.pop()
+                    continue
+                self._Stack.clear()
+                return self._BuildResult("Succeeded")
+            if isinstance(op, Fail):
+                self._Stack.clear()
+                return self._BuildResult("Failed", failureReason=op.Reason)
+            raise TypeError(f"Unsupported Dreadfang op for M1c runner: {type(op).__name__}")
+
+        return self._BuildResult("Incomplete")
+
+    def _BuildResult(
+        self,
+        status: RunStatus,
+        failureReason: object | None = None,
+        waitingOn: str | None = None,
+    ) -> DfRunResult:
+        return DfRunResult(
+            Status=status,
+            Tick=self.Ctx.Tick,
+            Acts=tuple(self._Accumulator.Acts),
+            Decisions=tuple(self._Accumulator.Decisions),
+            StepCount=self._Accumulator.StepCount,
+            FailureReason=failureReason,
+            WaitingOn=waitingOn,
+        )
+
+
 def RunNode(
     nodeFactory: DfNodeFactory,
     ctx: DfCtx | None = None,
     registry: DfRegistry | Mapping[str, DfNodeFactory] | None = None,
     actuators: DfActuatorRegistry | Mapping[str, DfActuatorFn] | None = None,
 ) -> DfRunResult:
-    runCtx = ctx if ctx is not None else DfCtx()
-    accumulator = _RunAccumulator()
-    frameInstanceByName: dict[str, int] = {}
-    rootIdentity = _NextFrameIdentity(nodeFactory.__name__, frameInstanceByName)
-    stack: list[_FrameState] = [_FrameState(Identity=rootIdentity, Node=nodeFactory(runCtx))]
-    commitmentByFrame: dict[DfFrameIdentity, _CommitmentState] = {}
-    normalizedRegistry = _NormalizeRegistry(registry)
-    normalizedActuators = _NormalizeActuatorRegistry(actuators)
-
-    while stack:
-        frame = stack[-1]
-        node = frame.Node
-        try:
-            op = next(node)
-        except StopIteration:
-            stack.pop()
-            continue
-        accumulator.StepCount += 1
-
-        if isinstance(op, Act):
-            actRecord = DfActRecord(
-                Tick=runCtx.Tick,
-                Name=op.Name,
-                Payload=op.Payload,
-            )
-            accumulator.Acts.append(actRecord)
-            normalizedActuators.Dispatch(actRecord, runCtx)
-            continue
-
-        if isinstance(op, Wait):
-            _ApplyWait(runCtx, op)
-            continue
-
-        if isinstance(op, Await):
-            waited = _ApplyAwait(runCtx, op)
-            if not waited:
-                return DfRunResult(
-                    Status="Waiting",
-                    Tick=runCtx.Tick,
-                    Acts=tuple(accumulator.Acts),
-                    Decisions=tuple(accumulator.Decisions),
-                    StepCount=accumulator.StepCount,
-                    FailureReason=None,
-                    WaitingOn=op.Name,
-                )
-            continue
-
-        if isinstance(op, WaitUntil):
-            if not _EvaluateCondition(runCtx, op.Condition):
-                return DfRunResult(
-                    Status="Waiting",
-                    Tick=runCtx.Tick,
-                    Acts=tuple(accumulator.Acts),
-                    Decisions=tuple(accumulator.Decisions),
-                    StepCount=accumulator.StepCount,
-                    FailureReason=None,
-                    WaitingOn=_DescribeCondition(op.Condition),
-                )
-            continue
-
-        if isinstance(op, Push):
-            pushFactory = normalizedRegistry.Resolve(op.Target)
-            pushIdentity = _NextFrameIdentity(op.Target, frameInstanceByName)
-            stack.append(_FrameState(Identity=pushIdentity, Node=pushFactory(runCtx)))
-            continue
-
-        if isinstance(op, Decide):
-            _ApplyDecide(
-                ctx=runCtx,
-                decideOp=op,
-                normalizedRegistry=normalizedRegistry,
-                stack=stack,
-                commitmentByFrame=commitmentByFrame,
-                accumulator=accumulator,
-                frameInstanceByName=frameInstanceByName,
-            )
-            continue
-
-        if isinstance(op, Pop):
-            if len(stack) == 1:
-                raise ValueError("Pop cannot be used at root")
-            commitmentByFrame.pop(stack[-1].Identity, None)
-            stack.pop()
-            continue
-
-        if isinstance(op, Succeed):
-            if len(stack) > 1:
-                stack.pop()
-                continue
-            return DfRunResult(
-                Status="Succeeded",
-                Tick=runCtx.Tick,
-                Acts=tuple(accumulator.Acts),
-                Decisions=tuple(accumulator.Decisions),
-                StepCount=accumulator.StepCount,
-                FailureReason=None,
-                WaitingOn=None,
-            )
-
-        if isinstance(op, Fail):
-            return DfRunResult(
-                Status="Failed",
-                Tick=runCtx.Tick,
-                Acts=tuple(accumulator.Acts),
-                Decisions=tuple(accumulator.Decisions),
-                StepCount=accumulator.StepCount,
-                FailureReason=op.Reason,
-                WaitingOn=None,
-            )
-
-        raise TypeError(f"Unsupported Dreadfang op for M1c runner: {type(op).__name__}")
-
-    return DfRunResult(
-        Status="Incomplete",
-        Tick=runCtx.Tick,
-        Acts=tuple(accumulator.Acts),
-        Decisions=tuple(accumulator.Decisions),
-        StepCount=accumulator.StepCount,
-        FailureReason=None,
-        WaitingOn=None,
+    session = DfSession(
+        NodeFactory=nodeFactory,
+        Ctx=ctx if ctx is not None else DfCtx(),
+        Registry=registry,
+        Actuators=actuators,
     )
+    return session.RunUntilBlocked()
 
 
 def _ApplyWait(ctx: DfCtx, waitOp: Wait) -> None:
