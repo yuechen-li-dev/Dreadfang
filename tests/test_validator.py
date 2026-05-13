@@ -20,6 +20,38 @@ def PatrolNode(ctx):
     assert result.Diagnostics == ()
 
 
+def test_ValidateSourceAcceptsTypedStateKeyConstants() -> None:
+    source = '''
+Mode = Df.Key("Mode", str)
+RecoverAttempts = Df.Key("RecoverAttempts", int)
+
+
+def Node(ctx):
+    ctx.State.Set(Mode, "patrol")
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
+def test_ValidateSourceRejectsNonTypedModuleAssignment() -> None:
+    source = '''
+Mode = "patrol"
+
+
+def Node(ctx):
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is False
+    assert result.Diagnostics[0].Message == "module-level assignments must be Df.Key(<name>, <type>) typed-key constants"
+
+
 def test_ValidateSourceAcceptsHelperAndRestrictedYieldFrom() -> None:
     source = '''
 def ChildNode(ctx):
