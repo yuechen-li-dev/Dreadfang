@@ -85,6 +85,35 @@ def test_RunNodeIncompleteWhenNodeExhaustsWithoutTerminalOp() -> None:
     assert result.Decisions == ()
 
 
+def test_RunNodeSteadyStopsAndPreservesRecordedActs() -> None:
+    def SteadyNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("BeforeSteady")
+        yield Df.Steady()
+        yield Df.Act("AfterSteady")
+        yield Df.Succeed()
+
+    result = RunNode(SteadyNode)
+
+    assert result.Status == "Steady"
+    assert result.FailureReason is None
+    assert result.WaitingOn is None
+    assert result.StepCount == 2
+    assert result.Acts == (DfActRecord(Tick=0, Name="BeforeSteady", Payload=None),)
+
+
+def test_RunNodeSteadyIsDistinctFromTerminalAndWaitingStates() -> None:
+    def SteadyNode(_ctx: DfCtx) -> DfNode:
+        yield Df.Steady()
+
+    result = RunNode(SteadyNode)
+
+    assert result.Status == "Steady"
+    assert result.Status != "Succeeded"
+    assert result.Status != "Failed"
+    assert result.Status != "Waiting"
+    assert result.Status != "Incomplete"
+
+
 def test_RunNodeRejectsUnsupportedOpsInM1b() -> None:
     def UnsupportedNode(_ctx: DfCtx) -> DfNode:
         yield Event(Name="Noise")
@@ -563,6 +592,28 @@ def test_DfSessionWaitUntilCanResumeAfterStateChange() -> None:
     resumed = session.RunUntilBlocked()
     assert resumed.Status == "Succeeded"
     assert resumed.Acts == (DfActRecord(Tick=0, Name="ReadyNow", Payload=None),)
+
+
+def test_DfSessionSteadyReturnsSteadyAndRemainsAtBoundary() -> None:
+    mode = Df.Key("Mode", str)
+
+    def Root(ctx: DfCtx) -> DfNode:
+        ctx.State.Set(mode, "steady")
+        yield Df.Act("Configured")
+        yield Df.Steady()
+        yield Df.Steady()
+
+    session = DfSession(NodeFactory=Root)
+
+    first = session.RunUntilBlocked()
+    assert first.Status == "Steady"
+    assert first.Acts == (DfActRecord(Tick=0, Name="Configured", Payload=None),)
+    assert first.DirtyKeys == ("Mode",)
+
+    second = session.RunUntilBlocked()
+    assert second.Status == "Steady"
+    assert second.Acts == (DfActRecord(Tick=0, Name="Configured", Payload=None),)
+    assert second.DirtyKeys == ()
 
 
 def test_DfSessionStackAndCommitmentSurviveWaitingAcrossRuns() -> None:

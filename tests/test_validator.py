@@ -51,6 +51,17 @@ def Node(ctx):
     assert result.Diagnostics == ()
 
 
+def test_ValidateSourceAcceptsSteadyYield() -> None:
+    source = '''
+def Node(ctx):
+    yield Df.Act("Configured")
+    yield Df.Steady()
+'''
+    result = ValidateSource(source)
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
 def test_ValidateSourceAcceptsTypedStateKeyConstants() -> None:
     source = '''
 Mode = Df.Key("Mode", str)

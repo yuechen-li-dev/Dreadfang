@@ -21,11 +21,12 @@ from dreadfang.core import (
     StateEquals,
     StateNotEquals,
     Succeed,
+    Steady,
     Wait,
     WaitUntil,
 )
 
-RunStatus = Literal["Succeeded", "Failed", "Incomplete", "Waiting"]
+RunStatus = Literal["Succeeded", "Failed", "Incomplete", "Waiting", "Steady"]
 DfNodeFactory = Callable[[DfCtx], DfNode]
 DfActuatorFn = Callable[["DfActRecord", DfCtx], None]
 
@@ -202,6 +203,8 @@ class DfSession:
                     continue
                 self._Stack.clear()
                 return self._BuildResult("Succeeded")
+            if isinstance(op, Steady):
+                return self._BuildResult("Steady")
             if isinstance(op, Fail):
                 self._Stack.clear()
                 return self._BuildResult("Failed", failureReason=op.Reason)
