@@ -78,6 +78,14 @@ The repository now includes an initial `dreadfang.core` surface with typed node/
 
 The repository now also includes an initial restricted-subset validator in `dreadfang.validator` with `ValidateSource(...)` and `ValidateFile(...)` for enforcing the M2 authoring boundary.
 
+Current waiting surface is explicit and bounded:
+
+* `Df.Wait(...)` for tick delays
+* `Df.Await(...)` for mailbox messages
+* `Df.WaitUntil(...)` for symbolic typed-key state conditions (`Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, `Df.StateAtMost`)
+
+`Df.WaitUntil(...)` does not accept arbitrary Python predicates/callables; false conditions return a `Waiting` run result for that invocation.
+
 ## Planned direction
 
 The expected early path is:

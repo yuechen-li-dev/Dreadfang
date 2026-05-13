@@ -3,7 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Mapping
 
-from dreadfang.core import Act, Await, Clamp01, Decide, DfCtx, DfNode, Fail, Option, Pop, Push, Succeed, Wait
+from dreadfang.core import (
+    Act,
+    Await,
+    Clamp01,
+    Decide,
+    DfCondition,
+    DfCtx,
+    DfNode,
+    Fail,
+    Option,
+    Pop,
+    Push,
+    StateAtLeast,
+    StateAtMost,
+    StateEquals,
+    StateNotEquals,
+    Succeed,
+    Wait,
+    WaitUntil,
+)
 
 RunStatus = Literal["Succeeded", "Failed", "Incomplete", "Waiting"]
 DfNodeFactory = Callable[[DfCtx], DfNode]
@@ -129,6 +148,19 @@ def RunNode(
                 )
             continue
 
+        if isinstance(op, WaitUntil):
+            if not _EvaluateCondition(runCtx, op.Condition):
+                return DfRunResult(
+                    Status="Waiting",
+                    Tick=runCtx.Tick,
+                    Acts=tuple(accumulator.Acts),
+                    Decisions=tuple(accumulator.Decisions),
+                    StepCount=accumulator.StepCount,
+                    FailureReason=None,
+                    WaitingOn=_DescribeCondition(op.Condition),
+                )
+            continue
+
         if isinstance(op, Push):
             pushFactory = normalizedRegistry.Resolve(op.Target)
             stack.append(pushFactory(runCtx))
@@ -205,6 +237,34 @@ def _ApplyAwait(ctx: DfCtx, awaitOp: Await) -> bool:
         del ctx.Mailbox[index]
         return True
     return False
+
+
+def _EvaluateCondition(ctx: DfCtx, condition: DfCondition) -> bool:
+    if isinstance(condition, StateEquals):
+        value = ctx.State.Get(condition.Key)
+        return value == condition.Value
+    if isinstance(condition, StateNotEquals):
+        value = ctx.State.Get(condition.Key)
+        return value != condition.Value
+    if isinstance(condition, StateAtLeast):
+        value = ctx.State.Get(condition.Key)
+        return isinstance(value, (int, float)) and value >= condition.Value
+    if isinstance(condition, StateAtMost):
+        value = ctx.State.Get(condition.Key)
+        return isinstance(value, (int, float)) and value <= condition.Value
+    raise TypeError(f"Unsupported Dreadfang condition for runtime: {type(condition).__name__}")
+
+
+def _DescribeCondition(condition: DfCondition) -> str:
+    if isinstance(condition, StateEquals):
+        return f"{condition.Key.Name} == {condition.Value!r}"
+    if isinstance(condition, StateNotEquals):
+        return f"{condition.Key.Name} != {condition.Value!r}"
+    if isinstance(condition, StateAtLeast):
+        return f"{condition.Key.Name} >= {condition.Value!r}"
+    if isinstance(condition, StateAtMost):
+        return f"{condition.Key.Name} <= {condition.Value!r}"
+    return type(condition).__name__
 
 
 def _ApplyDecide(

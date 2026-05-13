@@ -17,6 +17,10 @@ class DfOp:
     """Marker base type for all Dreadfang operations."""
 
 
+class DfCondition:
+    """Marker base type for inspectable symbolic Dreadfang conditions."""
+
+
 DfNode: TypeAlias = Generator[DfOp, None, None]
 DfScorer: TypeAlias = Callable[["DfCtx"], float]
 
@@ -106,8 +110,32 @@ class Wait(DfOp):
 
 
 @dataclass(frozen=True)
-class Until(DfOp):
-    Predicate: Callable[[DfCtx], bool]
+class StateEquals(DfCondition):
+    Key: DfKey[object]
+    Value: object
+
+
+@dataclass(frozen=True)
+class StateNotEquals(DfCondition):
+    Key: DfKey[object]
+    Value: object
+
+
+@dataclass(frozen=True)
+class StateAtLeast(DfCondition):
+    Key: DfKey[int] | DfKey[float]
+    Value: int | float
+
+
+@dataclass(frozen=True)
+class StateAtMost(DfCondition):
+    Key: DfKey[int] | DfKey[float]
+    Value: int | float
+
+
+@dataclass(frozen=True)
+class WaitUntil(DfOp):
+    Condition: DfCondition
 
 
 @dataclass(frozen=True)
@@ -184,8 +212,37 @@ class Df:
         return Wait(Ticks=ticks)
 
     @staticmethod
-    def Until(predicate: Callable[[DfCtx], bool]) -> Until:
-        return Until(Predicate=predicate)
+    def Until(predicate: Callable[[DfCtx], bool]) -> DfOp:
+        _ = predicate
+        raise NotImplementedError("Df.Until is not supported; use Df.WaitUntil with symbolic Df.State* conditions")
+
+    @staticmethod
+    def StateEquals(key: DfKey[TValue], value: TValue) -> StateEquals:
+        Df._ValidateKeyValueType(key, value, "value")
+        return StateEquals(Key=key, Value=value)
+
+    @staticmethod
+    def StateNotEquals(key: DfKey[TValue], value: TValue) -> StateNotEquals:
+        Df._ValidateKeyValueType(key, value, "value")
+        return StateNotEquals(Key=key, Value=value)
+
+    @staticmethod
+    def StateAtLeast(key: DfKey[int] | DfKey[float], value: int | float) -> StateAtLeast:
+        Df._ValidateNumericKey(key)
+        Df._ValidateKeyValueType(key, value, "value")
+        return StateAtLeast(Key=key, Value=value)
+
+    @staticmethod
+    def StateAtMost(key: DfKey[int] | DfKey[float], value: int | float) -> StateAtMost:
+        Df._ValidateNumericKey(key)
+        Df._ValidateKeyValueType(key, value, "value")
+        return StateAtMost(Key=key, Value=value)
+
+    @staticmethod
+    def WaitUntil(condition: DfCondition) -> WaitUntil:
+        if not isinstance(condition, DfCondition):
+            raise TypeError("WaitUntil expects a symbolic DfCondition")
+        return WaitUntil(Condition=condition)
 
     @staticmethod
     def Act(name: str, payload: object | None = None) -> Act:
@@ -231,3 +288,16 @@ class Df:
     @staticmethod
     def Key(name: str, valueType: type[TValue]) -> DfKey[TValue]:
         return DfKey(Name=name, ValueType=valueType)
+
+    @staticmethod
+    def _ValidateNumericKey(key: DfKey[object]) -> None:
+        if key.ValueType not in (int, float):
+            raise TypeError(f"Numeric state condition requires int/float key, got {key.ValueType.__name__}")
+
+    @staticmethod
+    def _ValidateKeyValueType(key: DfKey[object], value: object, valueLabel: str) -> None:
+        if type(value) is not key.ValueType:
+            raise TypeError(
+                f"State key '{key.Name}' expects {key.ValueType.__name__} {valueLabel}, "
+                f"got {type(value).__name__}"
+            )

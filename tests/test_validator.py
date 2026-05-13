@@ -35,6 +35,22 @@ def Node(ctx):
     assert result.Diagnostics == ()
 
 
+def test_ValidateSourceAcceptsWaitUntilSymbolicCondition() -> None:
+    source = '''
+Ready = Df.Key("Ready", bool)
+Signal = Df.Key("Signal", float)
+
+
+def Node(ctx):
+    yield Df.WaitUntil(Df.StateEquals(Ready, True))
+    yield Df.WaitUntil(Df.StateAtLeast(Signal, 0.75))
+    yield Df.Succeed()
+'''
+    result = ValidateSource(source)
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
 def test_ValidateSourceAcceptsTypedStateKeyConstants() -> None:
     source = '''
 Mode = Df.Key("Mode", str)
@@ -144,6 +160,28 @@ def Node(ctx):
     messages = tuple(diagnostic.Message for diagnostic in result.Diagnostics)
     assert "call target is not in the allowed Dreadfang subset" in messages
     assert "yield from is only allowed when delegating to a module-defined Dreadfang function" in messages
+
+
+def test_ValidateSourceRejectsWaitUntilLambdaAndNameAndStateGet() -> None:
+    source = '''
+Ready = Df.Key("Ready", bool)
+
+
+def IsReady(ctx):
+    return ctx.State.Get(Ready, False)
+
+
+def Node(ctx):
+    yield Df.WaitUntil(lambda value: value)
+    yield Df.WaitUntil(IsReady)
+    yield Df.WaitUntil(ctx.State.Get(Ready, False))
+    yield Df.Succeed()
+'''
+    result = ValidateSource(source)
+    assert result.IsValid is False
+    messages = tuple(diagnostic.Message for diagnostic in result.Diagnostics)
+    assert "lambda is not allowed in Dreadfang authoring modules" in messages
+    assert "Df.WaitUntil requires a symbolic Df.State* condition constructor call" in messages
 
 
 def test_ValidateSourceRejectsDirectMailboxAccessAndMutation() -> None:

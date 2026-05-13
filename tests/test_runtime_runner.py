@@ -134,6 +134,48 @@ def test_RunNodeAwaitMissingMessageReturnsWaitingAndPreservesActs() -> None:
     assert ctx.Mailbox == [Df.Message("Noise", 7)]
 
 
+def test_RunNodeWaitUntilTrueContinuesInSameInvocation() -> None:
+    ready = Df.Key("Ready", bool)
+
+    def Root(ctx: DfCtx) -> DfNode:
+        ctx.State.Set(ready, True)
+        yield Df.WaitUntil(Df.StateEquals(ready, True))
+        yield Df.Act("AfterCondition")
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+    assert result.Status == "Succeeded"
+    assert result.Tick == 0
+    assert result.Acts == (DfActRecord(Tick=0, Name="AfterCondition", Payload=None),)
+
+
+def test_RunNodeWaitUntilFalseReturnsWaitingAndPreservesPriorActs() -> None:
+    ready = Df.Key("Ready", bool)
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("BeforeCondition")
+        yield Df.WaitUntil(Df.StateEquals(ready, True))
+        yield Df.Act("AfterCondition")
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+    assert result.Status == "Waiting"
+    assert result.WaitingOn == "Ready == True"
+    assert result.Acts == (DfActRecord(Tick=0, Name="BeforeCondition", Payload=None),)
+
+
+def test_RunNodeWaitUntilMissingKeyBehaviorIsDeterministic() -> None:
+    signal = Df.Key("Signal", float)
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.WaitUntil(Df.StateAtLeast(signal, 0.75))
+        yield Df.Succeed()
+
+    result = RunNode(Root)
+    assert result.Status == "Waiting"
+    assert result.WaitingOn == "Signal >= 0.75"
+
+
 def test_RunNodeRejectsNegativeWaitTicks() -> None:
     def BadWaitNode(_ctx: DfCtx) -> DfNode:
         yield Df.Wait(-1)
