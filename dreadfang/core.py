@@ -31,6 +31,7 @@ class DfState:
 
     _values: dict[str, object] = field(default_factory=dict)
     _keyTypes: dict[str, type[object]] = field(default_factory=dict)
+    _dirtyKeyNames: set[str] = field(default_factory=set)
 
     def Get(self, key: str | DfKey[TValue], default: TValue | None = None) -> object | TValue | None:
         if isinstance(key, DfKey):
@@ -45,8 +46,22 @@ class DfState:
             self._RegisterTypedKey(key)
             self._ValidateType(key.Name, key.ValueType, value, "value")
             self._values[key.Name] = value
+            self._dirtyKeyNames.add(key.Name)
             return
         self._values[key] = value
+        self._dirtyKeyNames.add(key)
+
+
+
+    def IsDirty(self, key: str | DfKey[TValue]) -> bool:
+        keyName = key.Name if isinstance(key, DfKey) else key
+        return keyName in self._dirtyKeyNames
+
+    def DirtyKeys(self) -> tuple[str, ...]:
+        return tuple(sorted(self._dirtyKeyNames))
+
+    def ClearDirty(self) -> None:
+        self._dirtyKeyNames.clear()
 
     def _RegisterTypedKey(self, key: DfKey[object]) -> None:
         existingType = self._keyTypes.get(key.Name)
