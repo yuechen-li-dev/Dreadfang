@@ -138,6 +138,10 @@ Actuator handler exceptions are not swallowed; they propagate explicitly.
 MIT.
 
 
+## Authoring guide
+
+For current node-authoring boundaries and runtime/actuator split, see `docs/authoring.md`.
+
 ## Samples
 
 Repository samples live in `samples/` so authored flows stay separate from `dreadfang.core` and `dreadfang.runtime`.
