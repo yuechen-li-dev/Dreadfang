@@ -15,9 +15,13 @@ _ALLOWED_DF_CALLS: frozenset[str] = frozenset(
         "Option",
         "Pop",
         "Push",
+        "StateAtLeast",
+        "StateAtMost",
+        "StateEquals",
+        "StateNotEquals",
         "Succeed",
-        "Until",
         "Wait",
+        "WaitUntil",
     }
 )
 _ALLOWED_BUILTIN_CALLS: frozenset[str] = frozenset({"bool", "float", "int", "len", "str", "tuple"})
@@ -381,6 +385,10 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
         for keyword in node.keywords:
             self._VisitExpression(keyword.value)
 
+        if self._IsDfCall(node.func, "WaitUntil"):
+            self._ValidateWaitUntilCall(node)
+            return
+
         if self._IsAllowedCallTarget(node.func):
             return
 
@@ -425,6 +433,32 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
                 return node.value.attr == "State"
 
         return False
+
+    def _IsDfCall(self, node: ast.expr, methodName: str) -> bool:
+        if not isinstance(node, ast.Attribute):
+            return False
+        if not isinstance(node.value, ast.Name):
+            return False
+        return node.value.id == "Df" and node.attr == methodName
+
+    def _ValidateWaitUntilCall(self, node: ast.Call) -> None:
+        if len(node.args) != 1 or len(node.keywords) != 0:
+            self._Reject(node, "Df.WaitUntil requires exactly one symbolic Df.State* condition argument")
+            return
+        conditionArg = node.args[0]
+        if not isinstance(conditionArg, ast.Call):
+            self._Reject(node, "Df.WaitUntil requires a symbolic Df.State* condition constructor call")
+            return
+        if not isinstance(conditionArg.func, ast.Attribute) or not isinstance(conditionArg.func.value, ast.Name):
+            self._Reject(node, "Df.WaitUntil condition must be built with a Df.State* helper")
+            return
+        if conditionArg.func.value.id != "Df" or conditionArg.func.attr not in {
+            "StateEquals",
+            "StateNotEquals",
+            "StateAtLeast",
+            "StateAtMost",
+        }:
+            self._Reject(node, "Df.WaitUntil condition must be built with a supported Df.State* helper")
 
     def _Reject(self, node: ast.AST, message: str) -> None:
         self._diagnostics.append(

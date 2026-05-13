@@ -107,6 +107,16 @@ Typed keys enforce strict runtime type checks on both `Set` values and `Get` def
 
 `Tick` advances from runtime ops like `Df.Wait(...)`. Keep state keys small, explicit, and stable (`"mode"`, `"signalIndex"`, etc.), as shown in sample nodes.
 
+Waiting primitives:
+
+* `Df.Wait(ticks)` waits fixed tick count.
+* `Df.Await(name)` waits for mailbox message name.
+* `Df.WaitUntil(condition)` waits for a symbolic state condition object.
+* `Df.WaitUntil(...)` accepts condition objects built via `Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, or `Df.StateAtMost`.
+* Predicate callables/lambdas are not supported in `Df.WaitUntil`.
+* False `WaitUntil` conditions return `Status="Waiting"` with a readable condition in `WaitingOn`.
+* This is a boundary for one invocation only; no resumable session object exists yet.
+
 Mailbox boundary:
 
 * Runtime/wiring code may populate `ctx.Mailbox` with explicit `DfMessage` values (for example `Df.Message("Choice", "proud")`).

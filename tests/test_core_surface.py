@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import is_dataclass
 from typing import cast
 
+import pytest
+
 from dreadfang.core import (
     Act,
     Await,
@@ -19,9 +21,13 @@ from dreadfang.core import (
     Option,
     Pop,
     Push,
+    StateAtLeast,
+    StateAtMost,
+    StateEquals,
+    StateNotEquals,
     Succeed,
-    Until,
     Wait,
+    WaitUntil,
     When,
 )
 
@@ -120,9 +126,6 @@ def test_OpDataclassShape() -> None:
     assert failure.Payload == {"k": "v"}
     assert Wait(Ticks=3).Ticks == 3
 
-    until = Until(Predicate=lambda _ctx: True)
-    assert until.Predicate(DfCtx()) is True
-
     assert Act(Name="Move", Payload={"to": "north"}).Name == "Move"
     assert Event(Name="SawTarget", Payload={"id": "w1"}).Payload == {"id": "w1"}
     assert Await(Name="SawTarget", TimeoutTicks=5).TimeoutTicks == 5
@@ -133,6 +136,35 @@ def test_DfHelpersProduceExpectedOps() -> None:
     assert Df.Act("Move", {"to": "east"}) == Act(Name="Move", Payload={"to": "east"})
     assert Df.Succeed() == Succeed(Payload=None)
     assert Df.Fail("bad", {"code": 1}) == Fail(Reason="bad", Payload={"code": 1})
+
+
+def test_DfWaitUntilAndStateConditionHelpers() -> None:
+    ready = Df.Key("Ready", bool)
+    signal = Df.Key("Signal", float)
+
+    equals = Df.StateEquals(ready, True)
+    notEquals = Df.StateNotEquals(ready, False)
+    atLeast = Df.StateAtLeast(signal, 0.75)
+    atMost = Df.StateAtMost(signal, 0.2)
+
+    assert equals == StateEquals(Key=ready, Value=True)
+    assert notEquals == StateNotEquals(Key=ready, Value=False)
+    assert atLeast == StateAtLeast(Key=signal, Value=0.75)
+    assert atMost == StateAtMost(Key=signal, Value=0.2)
+    assert Df.WaitUntil(equals) == WaitUntil(Condition=equals)
+
+
+def test_DfConditionHelpersRejectInvalidTypes() -> None:
+    ready = Df.Key("Ready", bool)
+    mode = Df.Key("Mode", str)
+    signal = Df.Key("Signal", float)
+
+    with pytest.raises(TypeError, match="expects bool value"):
+        _ = Df.StateEquals(ready, "yes")
+    with pytest.raises(TypeError, match="requires int/float key"):
+        _ = Df.StateAtLeast(mode, "bad")
+    with pytest.raises(TypeError, match="expects float value"):
+        _ = Df.StateAtMost(signal, 1)
 
 
 def test_DfDecideNormalizesOptions() -> None:
