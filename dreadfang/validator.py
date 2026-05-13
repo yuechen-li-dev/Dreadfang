@@ -262,6 +262,9 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
             return
 
         if isinstance(node, ast.Attribute):
+            if node.attr == "Mailbox":
+                self._Reject(node, "direct ctx.Mailbox access is not allowed in restricted node modules")
+                return
             self._VisitExpression(node.value)
             return
 
@@ -370,6 +373,9 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
         )
 
     def _VisitCall(self, node: ast.Call) -> None:
+        if self._ContainsMailboxAttribute(node.func):
+            self._Reject(node, "direct ctx.Mailbox access is not allowed in restricted node modules")
+            return
         for argument in node.args:
             self._VisitExpression(argument)
         for keyword in node.keywords:
@@ -379,6 +385,17 @@ class _RestrictedSubsetValidator(ast.NodeVisitor):
             return
 
         self._Reject(node, "call target is not in the allowed Dreadfang subset")
+
+    def _ContainsMailboxAttribute(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Attribute):
+            if node.attr == "Mailbox":
+                return True
+            return self._ContainsMailboxAttribute(node.value)
+        if isinstance(node, ast.Subscript):
+            return self._ContainsMailboxAttribute(node.value)
+        if isinstance(node, ast.Call):
+            return self._ContainsMailboxAttribute(node.func)
+        return False
 
     def _VisitYieldFrom(self, node: ast.YieldFrom) -> None:
         if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):

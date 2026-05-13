@@ -93,6 +93,47 @@ def test_RunNodeRejectsUnsupportedOpsInM1b() -> None:
         _ = RunNode(UnsupportedNode)
 
 
+def test_RunNodeAwaitConsumesMessageAndSetsLastMessage() -> None:
+    def Root(ctx: DfCtx) -> DfNode:
+        yield Df.Await("Choice")
+        yield Df.Act("SawChoice", ctx.LastMessage.Payload)
+        yield Df.Succeed()
+
+    ctx = DfCtx(
+        Mailbox=[
+            Df.Message("Noise", 1),
+            Df.Message("Choice", "proud"),
+            Df.Message("Noise", 2),
+            Df.Message("Choice", "late"),
+        ]
+    )
+    result = RunNode(Root, ctx=ctx)
+
+    assert result.Status == "Succeeded"
+    assert result.Acts == (DfActRecord(Tick=0, Name="SawChoice", Payload="proud"),)
+    assert ctx.LastMessage == Df.Message("Choice", "proud")
+    assert ctx.Mailbox == [Df.Message("Noise", 1), Df.Message("Noise", 2), Df.Message("Choice", "late")]
+
+
+def test_RunNodeAwaitMissingMessageReturnsWaitingAndPreservesActs() -> None:
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("BeforeWait")
+        yield Df.Await("Choice")
+        yield Df.Act("AfterWait")
+        yield Df.Succeed()
+
+    ctx = DfCtx(Mailbox=[Df.Message("Noise", 7)])
+    result = RunNode(Root, ctx=ctx)
+
+    assert result.Status == "Waiting"
+    assert result.WaitingOn == "Choice"
+    assert result.StepCount == 2
+    assert result.FailureReason is None
+    assert result.Acts == (DfActRecord(Tick=0, Name="BeforeWait", Payload=None),)
+    assert ctx.LastMessage is None
+    assert ctx.Mailbox == [Df.Message("Noise", 7)]
+
+
 def test_RunNodeRejectsNegativeWaitTicks() -> None:
     def BadWaitNode(_ctx: DfCtx) -> DfNode:
         yield Df.Wait(-1)

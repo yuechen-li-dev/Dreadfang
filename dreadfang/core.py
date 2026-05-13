@@ -68,8 +68,15 @@ class DfCtx:
     """Tiny execution context visible to authored nodes."""
 
     State: DfState = field(default_factory=DfState)
-    Mailbox: list[object] = field(default_factory=list)
+    Mailbox: list["DfMessage"] = field(default_factory=list)
+    LastMessage: "DfMessage | None" = None
     Tick: int = 0
+
+
+@dataclass(frozen=True)
+class DfMessage:
+    Name: str
+    Payload: object | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +198,10 @@ class Df:
     @staticmethod
     def Await(name: str, timeoutTicks: int | None = None) -> Await:
         return Await(Name=name, TimeoutTicks=timeoutTicks)
+
+    @staticmethod
+    def Message(name: str, payload: object | None = None) -> DfMessage:
+        return DfMessage(Name=name, Payload=payload)
 
     @staticmethod
     def Option(

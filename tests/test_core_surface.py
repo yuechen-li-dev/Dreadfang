@@ -10,6 +10,7 @@ from dreadfang.core import (
     Decide,
     Df,
     DfKey,
+    DfMessage,
     DfCtx,
     DfNode,
     DfState,
@@ -97,7 +98,16 @@ def test_DfCtxDefaults() -> None:
 
     assert isinstance(ctx.State, DfState)
     assert ctx.Mailbox == []
+    assert ctx.LastMessage is None
     assert ctx.Tick == 0
+
+
+def test_DfMessageHelperProducesMessageRecord() -> None:
+    message = Df.Message("Choice", "proud")
+
+    assert isinstance(message, DfMessage)
+    assert message.Name == "Choice"
+    assert message.Payload == "proud"
 
 
 def test_OpDataclassShape() -> None:
