@@ -125,6 +125,11 @@ class Wait(DfOp):
 
 
 @dataclass(frozen=True)
+class Steady(DfOp):
+    """Explicit lifecycle boundary for normal quiescent operation."""
+
+
+@dataclass(frozen=True)
 class StateEquals(DfCondition):
     Key: DfKey[object]
     Value: object
@@ -225,6 +230,10 @@ class Df:
     @staticmethod
     def Wait(ticks: int = 1) -> Wait:
         return Wait(Ticks=ticks)
+
+    @staticmethod
+    def Steady() -> Steady:
+        return Steady()
 
     @staticmethod
     def Until(predicate: Callable[[DfCtx], bool]) -> DfOp:

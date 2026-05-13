@@ -19,6 +19,7 @@ _ALLOWED_DF_CALLS: frozenset[str] = frozenset(
         "StateAtMost",
         "StateEquals",
         "StateNotEquals",
+        "Steady",
         "Succeed",
         "Wait",
         "WaitUntil",

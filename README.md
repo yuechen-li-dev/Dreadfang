@@ -83,8 +83,11 @@ Current waiting surface is explicit and bounded:
 * `Df.Wait(...)` for tick delays
 * `Df.Await(...)` for mailbox messages
 * `Df.WaitUntil(...)` for symbolic typed-key state conditions (`Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, `Df.StateAtMost`)
+* `Df.Steady()` for explicit steady-state lifecycle (alive, quiescent, not completed/failed/waiting on a specific trigger)
 
 `Df.WaitUntil(...)` does not accept arbitrary Python predicates/callables; false conditions return a `Waiting` run result for that invocation.
+
+Use `Df.Steady()` instead of fake infinite waits to keep root sessions alive after setup/dispatch; Dreadfang still restricts `while` loops in authoring modules.
 
 ## Planned direction
 

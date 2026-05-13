@@ -112,9 +112,11 @@ Waiting primitives:
 * `Df.Wait(ticks)` waits fixed tick count.
 * `Df.Await(name)` waits for mailbox message name.
 * `Df.WaitUntil(condition)` waits for a symbolic state condition object.
+* `Df.Steady()` marks explicit normal quiescent operation (alive, no immediate work).
 * `Df.WaitUntil(...)` accepts condition objects built via `Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, or `Df.StateAtMost`.
 * Predicate callables/lambdas are not supported in `Df.WaitUntil`.
 * False `WaitUntil` conditions return `Status="Waiting"` with a readable condition in `WaitingOn`.
+* Use `Df.Steady()` instead of fake infinite wait loops; Dreadfang still does not allow `while`.
 
 Mailbox boundary:
 
@@ -160,7 +162,7 @@ Run-boundary behavior:
 
 ## 5b) One-shot run vs resumable session
 
-`RunNode(...)` remains the one-shot convenience API: it creates a fresh runtime session and runs until `Succeeded`, `Failed`, `Waiting`, or `Incomplete`.
+`RunNode(...)` remains the one-shot convenience API: it creates a fresh runtime session and runs until `Succeeded`, `Failed`, `Waiting`, `Steady`, or `Incomplete`.
 
 For in-memory continuation, use `DfSession`:
 
@@ -174,6 +176,7 @@ Session semantics are intentionally small:
 * cumulative `Acts`, `Decisions`, `StepCount`, and `Tick` are preserved across repeated `RunUntilBlocked()` calls;
 * stack state and utility commitment memory remain live across waiting boundaries;
 * this is in-memory runtime continuation only (no generator serialization, no save/restore, no async scheduler).
+* `Steady` is also resumable: repeated `RunUntilBlocked()` may return `Status="Steady"` again if the node remains at a steady boundary.
 
 ## 6) Actuation and actuators
 

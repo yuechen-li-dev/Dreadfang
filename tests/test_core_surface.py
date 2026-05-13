@@ -25,6 +25,7 @@ from dreadfang.core import (
     StateAtMost,
     StateEquals,
     StateNotEquals,
+    Steady,
     Succeed,
     Wait,
     WaitUntil,
@@ -125,6 +126,7 @@ def test_OpDataclassShape() -> None:
     assert failure.Reason == "because"
     assert failure.Payload == {"k": "v"}
     assert Wait(Ticks=3).Ticks == 3
+    assert isinstance(Steady(), Steady)
 
     assert Act(Name="Move", Payload={"to": "north"}).Name == "Move"
     assert Event(Name="SawTarget", Payload={"id": "w1"}).Payload == {"id": "w1"}
@@ -135,6 +137,7 @@ def test_DfHelpersProduceExpectedOps() -> None:
     assert Df.Wait(2) == Wait(Ticks=2)
     assert Df.Act("Move", {"to": "east"}) == Act(Name="Move", Payload={"to": "east"})
     assert Df.Succeed() == Succeed(Payload=None)
+    assert Df.Steady() == Steady()
     assert Df.Fail("bad", {"code": 1}) == Fail(Reason="bad", Payload={"code": 1})
 
 
