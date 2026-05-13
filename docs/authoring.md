@@ -147,6 +147,8 @@ Scorer functions are plain callables of shape `DfCtx -> float`.
 * Build options with `Df.Option(label, scoreFn, target)`.
 * Choose with `Df.Decide(..., hysteresis=..., min_commit_ticks=...)`.
 * Decisions are recorded in `DfRunResult.Decisions`.
+* Runtime commitment memory is keyed by stable logical frame identity (`Name#Instance`), not Python object identity.
+* `yield from` stays in the same logical frame identity; explicit `Push`/`Pop` creates frame identity boundaries.
 
 Tiny shape:
 

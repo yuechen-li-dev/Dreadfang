@@ -322,7 +322,7 @@ def test_RunNodeDecideChoosesHighestClampedScore() -> None:
 
     assert result.Status == "Succeeded"
     assert result.Decisions == (
-        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=1.0),
+        DfDecisionRecord(Tick=0, Frame="Root#0", Label="Primary", Target="PrimaryBeat", Score=1.0),
     )
     assert result.Acts == (DfActRecord(Tick=0, Name="Primary", Payload=None),)
 
@@ -377,9 +377,9 @@ def test_RunNodeDecideHysteresisRetainsCommitUntilMarginIsBeaten() -> None:
 
     assert tuple(record.Name for record in result.Acts) == ("Primary", "Primary", "Fallback")
     assert result.Decisions == (
-        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=0.6),
-        DfDecisionRecord(Tick=0, Label="Primary", Target="PrimaryBeat", Score=0.6),
-        DfDecisionRecord(Tick=0, Label="Fallback", Target="FallbackBeat", Score=0.72),
+        DfDecisionRecord(Tick=0, Frame="Root#0", Label="Primary", Target="PrimaryBeat", Score=0.6),
+        DfDecisionRecord(Tick=0, Frame="Root#0", Label="Primary", Target="PrimaryBeat", Score=0.6),
+        DfDecisionRecord(Tick=0, Frame="Root#0", Label="Fallback", Target="FallbackBeat", Score=0.72),
     )
 
 
@@ -438,6 +438,43 @@ def test_RunNodeDecideMinCommitBlocksSwitchUntilWindowElapses() -> None:
 
     assert tuple(record.Name for record in result.Acts) == ("Primary", "Primary", "Primary", "Fallback")
     assert tuple(record.Label for record in result.Decisions) == ("Primary", "Primary", "Primary", "Fallback")
+
+
+def test_RunNodeDecideFrameIdentityStableAcrossEquivalentRuns() -> None:
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Decide([Df.Option("Primary", When.Always, "PrimaryBeat")])
+        yield Df.Succeed()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Pop()
+
+    first = RunNode(Root, registry={"PrimaryBeat": PrimaryBeat})
+    second = RunNode(Root, registry={"PrimaryBeat": PrimaryBeat})
+
+    assert tuple(record.Frame for record in first.Decisions) == ("Root#0",)
+    assert tuple(record.Frame for record in second.Decisions) == ("Root#0",)
+    assert first.Decisions == second.Decisions
+
+
+def test_RunNodeDecideSeparateFramesDoNotShareCommitment() -> None:
+    def Child(_ctx: DfCtx) -> DfNode:
+        yield Df.Decide([Df.Option("Fallback", When.Always, "FallbackBeat")], min_commit_ticks=2)
+        yield Df.Pop()
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Decide([Df.Option("Primary", When.Always, "PrimaryBeat")], min_commit_ticks=2)
+        yield Df.Push("Child")
+        yield Df.Succeed()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Pop()
+
+    def FallbackBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Pop()
+
+    result = RunNode(Root, registry={"PrimaryBeat": PrimaryBeat, "FallbackBeat": FallbackBeat, "Child": Child})
+
+    assert tuple(record.Frame for record in result.Decisions) == ("Root#0", "Child#0")
 
 
 def test_RunNodeActuatorDispatchIsOptionalAndRecordFirst() -> None:

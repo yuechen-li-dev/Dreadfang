@@ -16,8 +16,8 @@ def test_M5UtilitySampleRunsFromSampleFileAndShowsDecisions() -> None:
     assert outcome.Result.Tick == len(signalSeries)
     assert outcome.Result.Acts[0] == DfActRecord(Tick=0, Name="SignalObserved", Payload={"signal": 0.52})
     assert outcome.Result.Decisions[:2] == (
-        DfDecisionRecord(Tick=0, Label="Track", Target="TrackBeat", Score=0.52),
-        DfDecisionRecord(Tick=1, Label="Recover", Target="RecoverBeat", Score=0.52),
+        DfDecisionRecord(Tick=0, Frame="Root#0", Label="Track", Target="TrackBeat", Score=0.52),
+        DfDecisionRecord(Tick=1, Frame="Root#0", Label="Recover", Target="RecoverBeat", Score=0.52),
     )
 
 
