@@ -230,3 +230,87 @@ def Node(ctx):
 
     assert result.IsValid is True
     assert result.Diagnostics == ()
+
+def test_ValidateSourceAcceptsRestrictedForLoopOverLocalName() -> None:
+    source = '''
+Signals = Df.Key("Signals", tuple)
+CurrentSignal = Df.Key("CurrentSignal", float)
+
+
+def Node(ctx):
+    signals = ctx.State.Get(Signals, ())
+    for signal in signals:
+        ctx.State.Set(CurrentSignal, float(signal))
+        yield Df.Act("SignalObserved", signal)
+        yield Df.Wait(1)
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
+def test_ValidateSourceAcceptsRestrictedForLoopOverTupleLiteral() -> None:
+    source = '''
+def Node(ctx):
+    for beat in ("Look", "Step", "Listen"):
+        yield Df.Act("Beat", beat)
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is True
+    assert result.Diagnostics == ()
+
+
+def test_ValidateSourceRejectsDisallowedLoopForms() -> None:
+    source = '''
+def Values():
+    return (1, 2, 3)
+
+
+def Node(ctx):
+    for item, other in ((1, 2),):
+        yield Df.Act("bad")
+    for value in range(3):
+        yield Df.Act("bad")
+    for value in Values():
+        yield Df.Act("bad")
+    for value in (entry for entry in (1, 2)):
+        yield Df.Act("bad")
+    for message in ctx.Mailbox:
+        yield Df.Act("bad")
+    for outer in (1, 2):
+        for inner in (3, 4):
+            yield Df.Act("bad")
+    for x in (1,):
+        break
+    for y in (1,):
+        continue
+    for z in (1,):
+        return
+    for q in (1,):
+        yield Df.Act("ok")
+    else:
+        yield Df.Act("bad")
+    while True:
+        yield Df.Act("bad")
+    yield Df.Succeed()
+'''
+
+    result = ValidateSource(source)
+
+    assert result.IsValid is False
+    messages = tuple(diagnostic.Message for diagnostic in result.Diagnostics)
+    assert "for-loop target must be a single local name" in messages
+    assert "for-loop iterable must be a local name or tuple literal of simple literals" in messages
+    assert "direct ctx.Mailbox access is not allowed in restricted node modules" in messages
+    assert "nested for loops are not allowed in Dreadfang authoring modules" in messages
+    assert "break is not allowed in Dreadfang authoring modules" in messages
+    assert "continue is not allowed in Dreadfang authoring modules" in messages
+    assert "return is not allowed inside for-loop bodies" in messages
+    assert "for/else is not allowed in Dreadfang authoring modules" in messages
+    assert "while loops are not allowed in Dreadfang authoring modules" in messages
