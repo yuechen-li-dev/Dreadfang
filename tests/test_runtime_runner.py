@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from dreadfang.core import Df, DfCtx, DfNode, Event, When
-from dreadfang.runtime import DfActRecord, DfActuatorRegistry, DfDecisionRecord, DfRegistry, RunNode
+from dreadfang.runtime import DfActRecord, DfActuatorRegistry, DfDecisionRecord, DfRegistry, DfSession, RunNode
 
 
 def test_RunNodeActWaitSucceedDeterministic() -> None:
@@ -518,10 +518,112 @@ def test_RunNodeActuatorHandlerReceivesCtxAndOrderedActs() -> None:
         seen.append((record.Tick, str(record.Payload), captureCtx.Tick))
 
     result = RunNode(Root, ctx=ctx, actuators={"Line": Capture})
-
     assert result.Status == "Succeeded"
     assert seen == [(0, "first", 0), (2, "second", 2)]
 
+
+def test_DfSessionAwaitCanResumeWithMessageInjection() -> None:
+    def Root(ctx: DfCtx) -> DfNode:
+        yield Df.Act("BeforeWait")
+        yield Df.Await("Choice")
+        yield Df.Act("AfterWait", ctx.LastMessage.Payload if ctx.LastMessage is not None else None)
+        yield Df.Succeed()
+
+    session = DfSession(NodeFactory=Root)
+    waiting = session.RunUntilBlocked()
+
+    assert waiting.Status == "Waiting"
+    assert waiting.WaitingOn == "Choice"
+    assert waiting.Acts == (DfActRecord(Tick=0, Name="BeforeWait", Payload=None),)
+
+    session.AddMessage(Df.Message("Choice", "go"))
+    resumed = session.RunUntilBlocked()
+    assert resumed.Status == "Succeeded"
+    assert session.Ctx.LastMessage == Df.Message("Choice", "go")
+    assert resumed.Acts == (
+        DfActRecord(Tick=0, Name="BeforeWait", Payload=None),
+        DfActRecord(Tick=0, Name="AfterWait", Payload="go"),
+    )
+
+
+def test_DfSessionWaitUntilCanResumeAfterStateChange() -> None:
+    ready = Df.Key("Ready", bool)
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.WaitUntil(Df.StateEquals(ready, True))
+        yield Df.Act("ReadyNow")
+        yield Df.Succeed()
+
+    session = DfSession(NodeFactory=Root)
+    waiting = session.RunUntilBlocked()
+    assert waiting.Status == "Waiting"
+    assert waiting.WaitingOn == "Ready == True"
+
+    session.Ctx.State.Set(ready, True)
+    resumed = session.RunUntilBlocked()
+    assert resumed.Status == "Succeeded"
+    assert resumed.Acts == (DfActRecord(Tick=0, Name="ReadyNow", Payload=None),)
+
+
+def test_DfSessionStackAndCommitmentSurviveWaitingAcrossRuns() -> None:
+    def PrimaryScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("primary", 0.0))
+
+    def FallbackScore(ctx: DfCtx) -> float:
+        return float(ctx.State.Get("fallback", 0.0))
+
+    def Root(_ctx: DfCtx) -> DfNode:
+        yield Df.Push("Child")
+        yield Df.Act("ParentResumed")
+        yield Df.Succeed()
+
+    def Child(ctx: DfCtx) -> DfNode:
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        yield Df.Await("Continue")
+        ctx.State.Set("fallback", 1.0)
+        yield Df.Decide(
+            [
+                Df.Option("Primary", PrimaryScore, "PrimaryBeat"),
+                Df.Option("Fallback", FallbackScore, "FallbackBeat"),
+            ],
+            min_commit_ticks=2,
+        )
+        yield Df.Pop()
+
+    def PrimaryBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Primary")
+        yield Df.Pop()
+
+    def FallbackBeat(_ctx: DfCtx) -> DfNode:
+        yield Df.Act("Fallback")
+        yield Df.Pop()
+
+    ctx = DfCtx()
+    ctx.State.Set("primary", 0.9)
+    ctx.State.Set("fallback", 0.1)
+    session = DfSession(
+        NodeFactory=Root,
+        Ctx=ctx,
+        Registry={"Child": Child, "PrimaryBeat": PrimaryBeat, "FallbackBeat": FallbackBeat},
+    )
+
+    waiting = session.RunUntilBlocked()
+    assert waiting.Status == "Waiting"
+    assert waiting.WaitingOn == "Continue"
+    assert tuple(record.Name for record in waiting.Acts) == ("Primary",)
+    assert tuple(record.Label for record in waiting.Decisions) == ("Primary",)
+
+    session.AddMessage(Df.Message("Continue"))
+    resumed = session.RunUntilBlocked()
+    assert resumed.Status == "Succeeded"
+    assert tuple(record.Name for record in resumed.Acts) == ("Primary", "Primary", "ParentResumed")
+    assert tuple(record.Label for record in resumed.Decisions) == ("Primary", "Primary")
 
 def test_RunNodeUnknownActuatorIsExplicitNoOp() -> None:
     called: list[str] = []
