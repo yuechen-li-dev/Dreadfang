@@ -1,182 +1,72 @@
 # Dreadfang
 
-Dreadfang is a restricted generator-based authoring surface for stateful control logic.
+Dreadfang is a strict, generator-based Python authoring surface for deterministic stateful control logic.
 
-Its goal is not to be “Python, but with fewer features.”
-Its goal is to make sequential, readable authoring possible without giving up explicit state, deterministic behavior, or future portability.
+It is intentionally narrow: node modules author control flow with Dreadfang ops, the validator enforces a restricted subset, and the runtime executes those nodes in pure Python.
 
-Dreadfang is meant to feel closer to **Dominatus-style authoring** than to ordinary framework-heavy Python.
+## Current surface (M18 checkpoint)
 
-## What Dreadfang is
+Dreadfang currently includes:
 
-Dreadfang is:
+* `dreadfang.core`: typed ops, `Df` helper factories, `Df.Key(...)`, and message/condition primitives
+* `dreadfang.validator`: restricted-subset validation (`ValidateSource(...)`, `ValidateFile(...)`)
+* `dreadfang.runtime`: pure Python execution (`RunNode(...)`) and resumable in-memory sessions (`DfSession`)
+* typed state keys with runtime type checks and dirty-key tracking
+* explicit `Df.Act(...)` intent records plus optional actuator dispatch boundary
+* Story adapter helpers in `dreadfang.adapters.story` (`Story.Line`, `Story.Say`, `Story.Option`, `Story.Choice`)
 
-* a constrained Python authoring surface
-* generator-based
-* function-first
-* explicit
-* typed
-* deterministic by design
-* intended for stateful logic such as:
+## Three-zone boundary model
 
-  * AI/control loops
-  * reactive systems
-  * narrative flow
-  * other bounded progression/state-machine problems
+1. **Restricted node modules**
+   * validator-clean Dreadfang authoring code
+   * no arbitrary imports, IO, or library side effects
+2. **Runtime/wiring modules**
+   * ordinary Python
+   * load modules, build registries, create `DfSession`, inject messages
+3. **Actuator modules**
+   * ordinary Python boundary code
+   * interpret recorded `Df.Act(...)` records and may perform side effects
 
-A Dreadfang node should read like a small script, not like a framework object or a bag of callbacks.
+The act stream in `DfRunResult.Acts` remains semantic truth even when no actuator is registered.
 
-## What Dreadfang is not
+## Samples
 
-Dreadfang is **not**:
+See `samples/README.md` for a sample index and file boundary map.
 
-* general-purpose Python with a cool name
-* a framework for arbitrary dynamic behavior
-* a license to use Python magic because “it works”
-* an excuse to hide control flow in decorators, globals, or reflection
-* a giant runtime architecture
-* a production lowering pipeline yet
+Included sample areas:
 
-For now, Dreadfang exists to prove the authoring surface first.
+* patrol/recover flow (`samples/PatrolRecover*`)
+* utility + hysteresis/min-commit decisions (`samples/UtilityCommitment*`)
+* text-adventure Story adapter flow (`samples/text_adventure/*`)
 
-## Design principles
+## Running tests
 
-Dreadfang follows a few simple rules:
+```bash
+python -m pytest -q
+```
 
-* Prefer the dull solution.
-* Prefer explicit state over hidden state.
-* Prefer readable sequential authoring over clever abstraction.
-* Prefer typed data and obvious boundaries.
-* Prefer deterministic behavior.
-* Prefer a small control vocabulary over framework sprawl.
-* Do not use a Python feature merely because it exists.
+## Text adventure sample status
 
-The intent is to keep Dreadfang code easy to review, easy to test, and hard to accidentally turn into a swamp.
+The text adventure sample is currently exposed as runtime/test helpers, not as a packaged interactive CLI.
 
-## Naming convention
+Use:
 
-Dreadfang uses **CamelCase** for function names.
+* `samples/text_adventure/StoryNodes.py` for restricted authored flow
+* `samples/text_adventure/StoryRuntime.py` for ordinary Python runtime wiring/actuator helpers
+* `tests/test_m17_story_adapter.py` for end-to-end run/resume behavior
 
-This is intentional.
+## Current non-goals / limitations
 
-Dreadfang is a constrained cross-language authoring surface, not ordinary general-purpose Python code, and its naming is meant to preserve interoperability with other runtimes and future generated backends rather than follow default Python style conventions.
+* no lowering/backend pipeline yet
+* no persistence/save-restore of live Python generator sessions
+* no arbitrary Python inside restricted node modules
+* no plugin framework
+* no async event-loop scheduler
 
-## Current status
+## Authoring guide
 
-This repository is at the beginning.
-
-Right now, the project is focused on:
-
-* establishing the repo shape
-* locking in authoring rules
-* defining what Dreadfang nodes should look like
-* building the smallest viable pure-Python runtime for those nodes
-
-The first priority is to prove that the authoring surface is good.
-
-The repository now includes an initial `dreadfang.core` surface with typed node/context/state primitives, core op dataclasses, and `Df` helper factories for authored nodes.
-
-The repository now also includes an initial restricted-subset validator in `dreadfang.validator` with `ValidateSource(...)` and `ValidateFile(...)` for enforcing the M2 authoring boundary.
-
-Current waiting surface is explicit and bounded:
-
-* `Df.Wait(...)` for tick delays
-* `Df.Await(...)` for mailbox messages
-* `Df.WaitUntil(...)` for symbolic typed-key state conditions (`Df.StateEquals`, `Df.StateNotEquals`, `Df.StateAtLeast`, `Df.StateAtMost`)
-* `Df.Steady()` for explicit steady-state lifecycle (alive, quiescent, not completed/failed/waiting on a specific trigger)
-
-`Df.WaitUntil(...)` does not accept arbitrary Python predicates/callables; false conditions return a `Waiting` run result for that invocation.
-
-Use `Df.Steady()` instead of fake infinite waits to keep root sessions alive after setup/dispatch; Dreadfang still restricts `while` loops in authoring modules.
-
-## Planned direction
-
-The expected early path is:
-
-1. define the node/op vocabulary
-2. build a small pure-Python runtime
-3. validate the restricted subset
-4. pressure-test authoring ergonomics with tiny samples
-5. only later decide what should become IR and what should remain surface syntax
-
-So the immediate question is not “how do we lower this?”
-The immediate question is “is this a good way to author stateful logic at all?”
-
-## Repository rules
-
-The `primer/` directory and `AGENTS.md` are load-bearing.
-
-In particular:
-
-* Dreadfang code uses a restricted Python subset
-* function-first design is preferred
-* dynamic magic is unwelcome
-* side effects must stay visible
-* readability beats convention theater
-* if a feature makes lowering, review, or testing harder, it should probably not be used
-
-## Intended shape
-
-A Dreadfang node should eventually look like a small sequential control script:
-
-* read context/state
-* yield a bounded control operation
-* continue clearly
-* avoid hidden machinery
-
-That is the center of gravity for the project.
-
-
-## Actuator boundary (M6)
-
-Dreadfang nodes stay in the restricted authoring subset and should remain pure control logic.
-
-When a node yields `Df.Act(...)`, it emits an explicit intent. The runtime always records that intent in `DfRunResult.Acts`.
-
-Optional runtime actuators can then interpret those recorded intents through explicit registration (`DfActuatorRegistry` passed to `RunNode`).
-
-This boundary is intentional:
-
-* node modules remain validator-friendly and lowerable
-* actuator modules are ordinary Python and may perform side effects (console output, engine calls, files, bindings, tools)
-* the recorded act stream remains the semantic truth, regardless of whether a handler exists
-
-Unknown acts are recorded and skipped by default when no matching handler is registered.
-Actuator handler exceptions are not swallowed; they propagate explicitly.
+For detailed authoring rules and runtime boundary guidance, see `docs/authoring.md`.
 
 ## License
 
 MIT.
-
-
-## Authoring guide
-
-For current node-authoring boundaries and runtime/actuator split, see `docs/authoring.md`.
-
-## Samples
-
-Repository samples live in `samples/` so authored flows stay separate from `dreadfang.core` and `dreadfang.runtime`.
-
-The patrol/recover sample is split into:
-
-* `samples/PatrolRecoverNodes.py` (restricted Dreadfang authoring module; expected to validate)
-* `samples/PatrolRecoverSample.py` (ordinary Python runtime wiring; not expected to validate)
-
-The utility/commitment sample is split into:
-
-* `samples/UtilityCommitmentNodes.py` (restricted Dreadfang authoring module; expected to validate)
-* `samples/UtilityCommitmentSample.py` (ordinary Python runtime/config helper module; not expected to validate)
-
-
-The text-adventure sample is split into:
-
-* `samples/text_adventure/StoryNodes.py` (restricted Dreadfang authoring module; expected to validate)
-* `samples/text_adventure/StoryRuntime.py` (ordinary Python runtime wiring + console/actuator boundary; not expected to validate)
-
-The Story adapter in `dreadfang.adapters.story` is intentionally thin sugar over `Df.Act(...)`, `Df.Await(...)`, and `ctx.State.Set(...)`. Choice input still flows through `Df.Message("Story.Choice", value)` into session resume.
-
-Across both samples, `Df.Act(...)` is the contract:
-
-* nodes emit explicit intent with `Df.Act(...)`
-* `RunNode` always records acts in `DfRunResult.Acts`
-* optional actuator handlers are explicit runtime boundary code and may be impure

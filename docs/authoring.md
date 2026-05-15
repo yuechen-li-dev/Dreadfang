@@ -250,23 +250,25 @@ Current restricted-subset bans include:
 
 If validation fails, simplify node authoring shape instead of weakening the validator boundary.
 
-## 9) Samples and split
+## 9) Samples and discoverability
 
-Current sample split in `samples/`:
+See `samples/README.md` for a quick sample index and restricted-vs-runtime file map.
 
-* `PatrolRecoverNodes.py`: restricted node module (validator target)
-* `PatrolRecoverSample.py`: runtime wiring + registry setup
-* `UtilityCommitmentNodes.py`: restricted node/scorer authoring
-* `UtilityCommitmentSample.py`: runtime/config wrapper and run analysis
+Current sample areas:
 
-These samples show:
+* Patrol/Recover (`samples/PatrolRecoverNodes.py`, `samples/PatrolRecoverSample.py`)
+* Utility/Commitment (`samples/UtilityCommitmentNodes.py`, `samples/UtilityCommitmentSample.py`)
+* Story text adventure (`samples/text_adventure/StoryNodes.py`, `samples/text_adventure/StoryRuntime.py`)
 
-* linear composition via `yield from`
-* stacked flow via `Push`/`Pop`
-* `Act` boundary and intent emission
-* utility/commitment via `Option` + `Decide`
+## 10) Running tests
 
-## 10) Anti-patterns (do not)
+Use the repository test command:
+
+```bash
+python -m pytest -q
+```
+
+## 11) Anti-patterns (do not)
 
 * Do not put library/IO calls inside restricted node modules.
 * Do not hide registration in decorators.
@@ -277,7 +279,7 @@ These samples show:
 * Do not force runtime/wiring modules to conform to node-module validator rules.
 
 
-## 9) Story adapter and text-adventure loop (M17)
+## 12) Story adapter and text-adventure loop (M17)
 
 Dreadfang now includes a thin story adapter in `dreadfang.adapters.story`:
 
